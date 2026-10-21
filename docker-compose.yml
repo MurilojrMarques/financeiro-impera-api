@@ -1,0 +1,68 @@
+# Uso:  docker compose up -d --build
+# Variáveis vêm do arquivo .env (copie de .env.example). Credenciais do Google ficam em ./secrets (fora do Git).
+x-app-env: &app-env
+  NODE_ENV: production
+  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public
+  GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/google-sa.json
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: America/Sao_Paulo
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # não publica a porta do banco no host por padrão
+
+  migrate:
+    build: { context: ., target: migrate }
+    environment:
+      <<: *app-env
+    depends_on:
+      db: { condition: service_healthy }
+    restart: "no"
+
+  api:
+    build: { context: ., target: runtime }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *app-env
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - anexos:/app/storage/anexos
+      - ./secrets/google-sa.json:/run/secrets/google-sa.json:ro
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    stop_grace_period: 20s
+
+  worker:
+    build: { context: ., target: runtime }
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *app-env
+    command: ["node", "dist/src/worker.js"]
+    volumes:
+      - ./secrets/google-sa.json:/run/secrets/google-sa.json:ro
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      disable: true
+    stop_grace_period: 60s # permite terminar o lote em andamento
+
+volumes:
+  pgdata:
+  anexos:

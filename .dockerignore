@@ -1,0 +1,14 @@
+node_modules
+dist
+.git
+.env
+.env.*
+!.env.example
+secrets
+storage
+storage-test
+.pgdata
+src/generated
+coverage
+tests
+*.md

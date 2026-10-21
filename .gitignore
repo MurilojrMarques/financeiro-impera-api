@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+secrets/
+.pgdata/
+storage/
+storage-test/
+src/generated/
+coverage/
