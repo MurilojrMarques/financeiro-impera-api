@@ -233,13 +233,13 @@ describe('autenticação e autorização', () => {
     const admin = await criarUsuario('ADMIN');
     const al = await login(admin.email);
     const auth = `Bearer ${al.body.data.accessToken}`;
-    const criado = await request(app).post(api('/usuarios')).set('Authorization', auth).send({ nome: 'Fulano', email: 'Fulano@Empresa.com', perfil: 'ANALISTA', senhaTemporaria: 'Temporaria-123' });
+    const criado = await request(app).post(api('/usuarios')).set('Authorization', auth).send({ nome: 'Fulano', email: 'Fulano@Empresa.com', perfil: 'ANALISTA', senhaTemporaria: 'Cobalto-Pivo-Tinta-47' });
     expect(criado.status).toBe(201);
     expect(criado.body.data).toMatchObject({ email: 'fulano@empresa.com', trocaSenhaObrig: true });
     expect(JSON.stringify(criado.body)).not.toMatch(/senhaHash|argon2/);
-    expect((await request(app).post(api('/usuarios')).set('Authorization', auth).send({ nome: 'Dup', email: 'fulano@empresa.com', perfil: 'LEITURA', senhaTemporaria: 'Temporaria-123' })).status).toBe(409);
+    expect((await request(app).post(api('/usuarios')).set('Authorization', auth).send({ nome: 'Dup', email: 'fulano@empresa.com', perfil: 'LEITURA', senhaTemporaria: 'Cobalto-Pivo-Tinta-47' })).status).toBe(409);
 
-    const fl = await login('fulano@empresa.com', 'Temporaria-123');
+    const fl = await login('fulano@empresa.com', 'Cobalto-Pivo-Tinta-47');
     expect(fl.status).toBe(200);
     const desativa = await request(app).patch(api(`/usuarios/${criado.body.data.id}/status`)).set('Authorization', auth).send({ ativo: false });
     expect(desativa.status).toBe(200);
@@ -248,7 +248,7 @@ describe('autenticação e autorização', () => {
 
     const aud = await request(app).get(api('/admin/auditoria?acao=usuario.')).set('Authorization', auth);
     expect(aud.body.data.map((a: { acao: string }) => a.acao)).toEqual(expect.arrayContaining(['usuario.criado', 'usuario.status']));
-    expect(JSON.stringify(aud.body)).not.toContain('Temporaria-123');
+    expect(JSON.stringify(aud.body)).not.toContain('Cobalto-Pivo-Tinta-47');
   });
 
   it('health é público e mínimo; rota inexistente e erro não vazam stack/SQL', async () => {

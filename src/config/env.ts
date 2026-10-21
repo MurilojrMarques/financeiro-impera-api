@@ -47,6 +47,23 @@ const schema = z.object({
   REDTRACK_OFFER_FILTER: z.string().default('pagah'),
   REDTRACK_TIMEOUT_MS: z.coerce.number().int().positive().default(20000),
 
+  // E-mail transacional (recuperação de senha, convites, alertas). Em produção use SMTP; "log" só existe fora de produção.
+  APP_PUBLIC_URL: z.string().url().default('http://localhost:5173'),
+  MAIL_TRANSPORT: z.enum(['smtp', 'log']).default('log'),
+  MAIL_FROM: z.string().min(3).default('Financeiro Impera <no-reply@localhost>'),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  SMTP_SECURE: bool.default(false),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  // Políticas de conta
+  RESET_TOKEN_TTL_MINUTES: z.coerce.number().int().min(5).max(240).default(30),
+  INVITE_TOKEN_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(72),
+  FORGOT_PASSWORD_MAX_PER_HOUR: z.coerce.number().int().min(1).max(20).default(3),
+  LOGIN_MAX_FAILURES: z.coerce.number().int().min(3).max(20).default(5),
+  LOGIN_LOCK_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
+  PASSWORD_HISTORY: z.coerce.number().int().min(0).max(24).default(5),
+
   SYNC_ENABLED: bool.default(true),
   SYNC_EVENTOS_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
   SYNC_REDTRACK_INTERVAL_SECONDS: z.coerce.number().int().min(30).default(1800),

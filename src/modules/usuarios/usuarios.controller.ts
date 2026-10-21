@@ -14,8 +14,8 @@ export async function get(req: Request, res: Response): Promise<void> {
 }
 
 export async function create(req: Request, res: Response): Promise<void> {
-  const u = await svc.create(req.valid.body);
-  await audit(req, 'usuario.criado', 'usuario', u.id, { email: u.email, perfil: u.perfil });
+  const u = await svc.create(req.user!.id, req.valid.body);
+  await audit(req, 'usuario.criado', 'usuario', u.id, { email: u.email, perfil: u.perfil, convite: u.conviteEnviado });
   created(res, u);
 }
 
@@ -41,4 +41,22 @@ export async function remove(req: Request, res: Response): Promise<void> {
   await svc.remove(req.user!.id, req.valid.params.id);
   await audit(req, 'usuario.desativado', 'usuario', req.valid.params.id);
   noContent(res);
+}
+
+export async function reenviarConvite(req: Request, res: Response): Promise<void> {
+  const enviado = await svc.enviarConvite(req.user!.id, req.valid.params.id);
+  await audit(req, 'usuario.convite_reenviado', 'usuario', req.valid.params.id, { enviado });
+  ok(res, { enviado });
+}
+
+export async function redefinirSenha(req: Request, res: Response): Promise<void> {
+  const enviado = await svc.enviarRedefinicao(req.valid.params.id);
+  await audit(req, 'usuario.redefinicao_enviada', 'usuario', req.valid.params.id, { enviado });
+  ok(res, { enviado });
+}
+
+export async function desbloquear(req: Request, res: Response): Promise<void> {
+  const u = await svc.desbloquear(req.valid.params.id);
+  await audit(req, 'usuario.desbloqueado', 'usuario', u.id);
+  ok(res, u);
 }

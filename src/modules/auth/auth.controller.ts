@@ -2,6 +2,7 @@ import type { CookieOptions, Request, Response } from 'express';
 import { env } from '../../config/env';
 import { Errors } from '../../shared/errors/app-error';
 import { audit } from '../../shared/services/audit.service';
+import { emailConfigurado } from '../../shared/services/mail.service';
 import { noContent, ok } from '../../shared/utils/response';
 import { authService, type AuthResult } from './auth.service';
 import { generateCsrfToken } from './token.service';
@@ -85,7 +86,7 @@ export async function me(req: Request, res: Response): Promise<void> {
 
 export async function changePassword(req: Request, res: Response): Promise<void> {
   const { senhaAtual, novaSenha } = req.valid.body;
-  await authService.changePassword(req.user!.id, req.user!.sessaoId, senhaAtual, novaSenha);
+  await authService.changePassword(req.user!.id, req.user!.sessaoId, senhaAtual, novaSenha, ctx(req));
   await audit(req, 'auth.troca_senha', 'usuario', req.user!.id);
   noContent(res);
 }
@@ -98,5 +99,32 @@ export async function listSessions(req: Request, res: Response): Promise<void> {
 export async function revokeSession(req: Request, res: Response): Promise<void> {
   await authService.revokeOwnSession(req.user!.id, req.valid.params.id);
   await audit(req, 'auth.sessao_revogada', 'sessao', req.valid.params.id);
+  noContent(res);
+}
+
+/** Recursos de conta disponíveis (a tela esconde "Esqueci minha senha" se o e-mail não estiver configurado). */
+export async function config(_req: Request, res: Response): Promise<void> {
+  ok(res, { recuperacaoSenha: emailConfigurado() });
+}
+
+/** Resposta idêntica exista ou não a conta (anti-enumeração). 202: o pedido foi aceito para processamento. */
+export async function forgotPassword(req: Request, res: Response): Promise<void> {
+  await authService.solicitarRedefinicao(req.valid.body.email, ctx(req));
+  ok(res, { mensagem: 'Se o e-mail estiver cadastrado, enviaremos as instruções para redefinir a senha.' }, undefined, 202);
+}
+
+export async function validarLink(req: Request, res: Response): Promise<void> {
+  ok(res, await authService.validarLink(req.valid.body.token));
+}
+
+export async function resetPassword(req: Request, res: Response): Promise<void> {
+  await authService.concluirComLink('RESET_SENHA', req.valid.body.token, req.valid.body.novaSenha, ctx(req));
+  clearAuthCookies(res);
+  noContent(res);
+}
+
+export async function activateAccount(req: Request, res: Response): Promise<void> {
+  await authService.concluirComLink('CONVITE', req.valid.body.token, req.valid.body.novaSenha, ctx(req));
+  clearAuthCookies(res);
   noContent(res);
 }

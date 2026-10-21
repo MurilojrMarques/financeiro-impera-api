@@ -16,7 +16,8 @@ export const createBody = z.object({
   nome: z.string().trim().min(2).max(120),
   email: z.string().trim().toLowerCase().email().max(254),
   perfil,
-  senhaTemporaria: z.string().min(12).max(256),
+  /** opcional (legado): sem ela, o usuário recebe um convite por e-mail e define a própria senha */
+  senhaTemporaria: z.string().min(12).max(256).optional(),
 });
 
 export const updateBody = z

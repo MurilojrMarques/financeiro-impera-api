@@ -40,6 +40,11 @@ export const ROUTES: RouteDoc[] = [
   r('post', '/auth/logout', 'Autenticação', 'Encerra a sessão atual', undefined, { body: S.refresh, status: 204 }),
   r('post', '/auth/logout-all', 'Autenticação', 'Encerra todas as sessões do usuário', TODOS, { status: 204 }),
   r('get', '/auth/me', 'Autenticação', 'Usuário autenticado', TODOS),
+  r('get', '/auth/config', 'Autenticação', 'Recursos de conta disponíveis (ex.: recuperação de senha por e-mail)', undefined),
+  r('post', '/auth/forgot-password', 'Autenticação', 'Esqueci minha senha: envia link de uso único por e-mail (resposta 202 sempre igual)', undefined, { body: S.forgotPassword, status: 202 }),
+  r('post', '/auth/link/validar', 'Autenticação', 'Confere se um link de redefinição/convite ainda é válido', undefined, { body: S.token }),
+  r('post', '/auth/reset-password', 'Autenticação', 'Define a nova senha com o link recebido por e-mail (encerra todas as sessões)', undefined, { body: S.resetPassword, status: 204 }),
+  r('post', '/auth/activate', 'Autenticação', 'Ativa a conta convidada definindo a senha pelo link recebido por e-mail', undefined, { body: S.resetPassword, status: 204 }),
   r('patch', '/auth/change-password', 'Autenticação', 'Troca de senha (obrigatória para senha temporária)', TODOS, { body: S.changePassword, status: 204 }),
   r('get', '/auth/sessions', 'Autenticação', 'Sessões ativas do usuário', TODOS),
   r('delete', '/auth/sessions/:id', 'Autenticação', 'Revoga uma sessão do usuário', TODOS, { status: 204 }),
@@ -51,6 +56,9 @@ export const ROUTES: RouteDoc[] = [
   r('patch', '/usuarios/:id', 'Usuários', 'Atualiza nome/e-mail', ADM, { body: S.usuariosAtualizar }),
   r('patch', '/usuarios/:id/status', 'Usuários', 'Ativa/desativa usuário (revoga sessões ao desativar)', ADM, { body: S.usuariosStatus }),
   r('patch', '/usuarios/:id/perfil', 'Usuários', 'Altera o perfil', ADM, { body: S.usuariosPerfil }),
+  r('post', '/usuarios/:id/reenviar-convite', 'Usuários', 'Reenvia o convite por e-mail (o link anterior deixa de valer)', ADM),
+  r('post', '/usuarios/:id/redefinir-senha', 'Usuários', 'Envia ao usuário o link para criar nova senha (o admin nunca vê a senha)', ADM),
+  r('post', '/usuarios/:id/desbloquear', 'Usuários', 'Remove o bloqueio temporário por tentativas de login', ADM),
   r('delete', '/usuarios/:id', 'Usuários', 'Desativação lógica (preserva auditoria)', ADM, { status: 204 }),
 
   // ── Dashboard

@@ -1,6 +1,6 @@
 import { auditoriaQuery } from '../modules/admin/admin.routes';
 import { afiliadosQuery, regraBody as afiliadoRegraBody } from '../modules/afiliados/afiliados.routes';
-import { changePasswordBody, loginBody, refreshBody } from '../modules/auth/auth.schemas';
+import { changePasswordBody, forgotPasswordBody, loginBody, refreshBody, resetPasswordBody, tokenBody } from '../modules/auth/auth.schemas';
 import { patchBody, regraBody as classRegraBody, simularBody } from '../modules/classificacoes/classificacoes.routes';
 import {
   atualizarCategoriaBody, atualizarCustoBody, criarCategoriaBody, criarCustoBody, criarRecorrenciaBody, listaQuery as custosListaQuery,
@@ -19,6 +19,9 @@ export const adminRoutesSchemas = {
   login: loginBody,
   refresh: refreshBody,
   changePassword: changePasswordBody,
+  forgotPassword: forgotPasswordBody,
+  token: tokenBody,
+  resetPassword: resetPasswordBody,
   usuariosLista: listQuery,
   usuariosCriar: createBody,
   usuariosAtualizar: updateBody,

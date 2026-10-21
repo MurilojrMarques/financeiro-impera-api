@@ -114,14 +114,58 @@ model Usuario {
   perfil           PerfilUsuario
   ativo            Boolean       @default(true)
   trocaSenhaObrig  Boolean       @default(false)
+  /// convite enviado e ainda não aceito: a senha gravada é aleatória e inutilizável
+  convitePendente  Boolean       @default(false)
+  /// tentativas de login falhas consecutivas e bloqueio temporário (anti força-bruta)
+  falhasLogin      Int           @default(0)
+  bloqueadoAte     DateTime?     @db.Timestamptz
+  senhaAlteradaEm  DateTime?     @db.Timestamptz
   ultimoLoginEm    DateTime?     @db.Timestamptz
   criadoEm         DateTime      @default(now()) @db.Timestamptz
   atualizadoEm     DateTime      @updatedAt @db.Timestamptz
   sessoes          Sessao[]
+  tokens           TokenUsuario[]
+  senhasAnteriores SenhaHistorico[]
   auditorias       Auditoria[]
   custos           CustoOperacional[]
 
   @@map("usuarios")
+}
+
+enum TipoTokenUsuario {
+  RESET_SENHA
+  CONVITE
+}
+
+/// Token de uso único para redefinir a senha ou aceitar um convite. Só o HASH (SHA-256) é armazenado.
+model TokenUsuario {
+  id         String             @id @default(uuid()) @db.Uuid
+  usuarioId  String             @db.Uuid
+  tipo       TipoTokenUsuario
+  tokenHash  String             @unique
+  expiraEm   DateTime           @db.Timestamptz
+  usadoEm    DateTime?          @db.Timestamptz
+  revogadoEm DateTime?          @db.Timestamptz
+  ip         String?
+  userAgent  String?
+  criadoEm   DateTime           @default(now()) @db.Timestamptz
+  usuario    Usuario            @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, tipo, usadoEm, revogadoEm])
+  @@index([criadoEm])
+  @@map("tokens_usuario")
+}
+
+/// Hashes das senhas anteriores (impede reaproveitar as últimas N).
+model SenhaHistorico {
+  id        String   @id @default(uuid()) @db.Uuid
+  usuarioId String   @db.Uuid
+  senhaHash String
+  criadoEm  DateTime @default(now()) @db.Timestamptz
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, criadoEm])
+  @@map("senhas_historico")
 }
 
 // Sessão = família de refresh tokens. Armazena somente o HASH do token atual.

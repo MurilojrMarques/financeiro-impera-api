@@ -95,9 +95,9 @@ describe('OpenAPI', () => {
     }
   });
 
-  it('toda rota não pública exige Bearer; somente login/refresh/logout/health são públicos', () => {
+  it('toda rota não pública exige Bearer; somente login/refresh/logout/health e os fluxos de conta (recuperação de senha, ativação) são públicos', () => {
     const publicas = ROUTES.filter((r) => !r.papeis).map((r) => r.path).sort();
-    expect(publicas).toEqual(['/auth/login', '/auth/logout', '/auth/refresh', '/health/live', '/health/ready']);
+    expect(publicas).toEqual(['/auth/activate', '/auth/config', '/auth/forgot-password', '/auth/link/validar', '/auth/login', '/auth/logout', '/auth/refresh', '/auth/reset-password', '/health/live', '/health/ready']);
     expect(spec.paths['/vendas'].get.security).toEqual([{ bearerAuth: [] }]);
   });
 });

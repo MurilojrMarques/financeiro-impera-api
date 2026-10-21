@@ -13,3 +13,7 @@ export const changePasswordBody = z.object({
 });
 
 export const sessionIdParams = z.object({ id: z.string().uuid() });
+
+export const forgotPasswordBody = z.object({ email: z.string().trim().toLowerCase().email().max(254) });
+export const tokenBody = z.object({ token: z.string().trim().min(20).max(200) });
+export const resetPasswordBody = z.object({ token: z.string().trim().min(20).max(200), novaSenha: z.string().min(12).max(256) });
