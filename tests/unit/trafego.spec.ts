@@ -4,7 +4,7 @@ const envMock = vi.hoisted(() => ({ REDTRACK_API_KEY: 'chave-de-teste' as string
 vi.mock('../../src/config/env', () => ({ env: envMock }));
 
 import { investimentoNoPeriodo, limparCacheRedtrack, somarCusto, somarRedtrack, type Fetcher } from '../../src/integrations/redtrack/redtrack.client';
-import { PARAMETROS_PADRAO, custoUnitarioDoKit, montarResumo, montarResumoCallCenter, unidadesDoKit } from '../../src/modules/trafego/trafego.domain';
+import { PARAMETROS_PADRAO, custoUnitarioDoKit, mcBrCentavos, montarResumo, montarResumoCallCenter, unidadesDoKit } from '../../src/modules/trafego/trafego.domain';
 
 describe('unidades por kit', () => {
   it.each([
@@ -88,7 +88,7 @@ describe('RedTrack: investimento', () => {
   });
 
   it('faturamento = revenuetype 2+3; downsells (6 a 9) à parte; o 4 fica de fora; compras = convtype2', () => {
-    expect(somarRedtrack(linhas, 'pagah')).toEqual({ custoCentavos: 101_055, faturamentoCentavos: 100_010, downsellsCentavos: 2_505, compras: 4 });
+    expect(somarRedtrack(linhas, 'pagah')).toEqual({ custoCentavos: 101_055, faturamentoCentavos: 100_010, downsellsCentavos: 2_505, baseMcBrCentavos: 100_510, compras: 4 });
   });
 
   it('sem chave: indisponível, sem chamar a rede', async () => {
@@ -103,7 +103,7 @@ describe('RedTrack: investimento', () => {
     const f = vi.fn(async (_u: string) => ({ ok: true, status: 200, json: async () => linhas }));
     const a = await investimentoNoPeriodo('2026-10-19', '2026-10-19', f as unknown as Fetcher);
     const b = await investimentoNoPeriodo('2026-10-19', '2026-10-19', f as unknown as Fetcher);
-    expect(a).toEqual({ fonte: 'REDTRACK', centavos: 101_055, faturamentoCentavos: 100_010, downsellsCentavos: 2_505, compras: 4 });
+    expect(a).toEqual({ fonte: 'REDTRACK', centavos: 101_055, faturamentoCentavos: 100_010, downsellsCentavos: 2_505, baseMcBrCentavos: 100_510, compras: 4 });
     expect(b).toEqual(a);
     expect(f).toHaveBeenCalledTimes(1);
     expect(f.mock.calls[0]?.[0]).toContain('timezone=America%2FSao_Paulo');
@@ -156,5 +156,13 @@ describe('Call Center: receita → custos → sobra (conferido com a tela de ref
     const s = montarResumoCallCenter({ faturamentoCentavos: 3_650_967, receitaLiquidaCentavos: 3_500_000, pedidos: 225, remessas: 225, kits, custosOperacaoCentavos: null }, PARAMETROS_PADRAO);
     expect(s.sobraCentavos).toBeNull();
     expect(s.margemBp).toBeNull();
+  });
+});
+
+describe('MC BR (coluna do RedTrack)', () => {
+  it('(Front + Upsell 1 + Downsell 1 + Downsell 2) × 70% − investimento × 110%, em centavos inteiros', () => {
+    // 01–19/10: base 2.013.441,13 e investimento 1.211.897,38 (valores medidos)
+    expect(mcBrCentavos(201_344_113, 121_189_738)).toBe(140_940_879 - 133_308_712);
+    expect(mcBrCentavos(0, 10_000)).toBe(-11_000);
   });
 });

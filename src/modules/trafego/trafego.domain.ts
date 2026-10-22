@@ -212,3 +212,13 @@ export function montarResumoCallCenter(e: EntradaCallCenter, p: Parametros) {
     kitsSemQuantidade: prod.kitsSemQuantidade,
   };
 }
+
+
+/**
+ * MC BR — a mesma coluna personalizada que o time usa no RedTrack ("MC BR" em Campanhas/Relatório):
+ * (Front + Upsell 1 + Downsell 1 + Downsell 2 [revenuetype2+3+6+7] × 70%) − (custo dos anúncios × 110%).
+ * É a base de onde sai a comissão do pessoal. Inteiros em centavos; arredonda cada parcela.
+ */
+export function mcBrCentavos(baseCentavos: number, custoCentavos: number): number {
+  return Math.round((baseCentavos * 7) / 10) - Math.round((custoCentavos * 11) / 10);
+}

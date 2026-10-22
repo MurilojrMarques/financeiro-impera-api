@@ -9,7 +9,7 @@ import { audit } from '../../shared/services/audit.service';
 import { metaFinanceira } from '../../shared/services/relatorio.service';
 import { ok } from '../../shared/utils/response';
 import { filtrosSchema, resolverFiltro } from '../../shared/validators/filtros';
-import { PARAMETROS_PADRAO, montarResumo, parametrosSchema, type KitAgregado, type Parametros } from './trafego.domain';
+import { PARAMETROS_PADRAO, mcBrCentavos, montarResumo, parametrosSchema, type KitAgregado, type Parametros } from './trafego.domain';
 
 export const trafegoRouter = Router();
 trafegoRouter.use(authenticate(), authorize(Roles.ANALISE));
@@ -99,7 +99,9 @@ trafegoRouter.get('/resumo', validate({ query: filtrosSchema }), async (req, res
   if (agg.comprasSemCliente > 0) avisos.push(`${agg.comprasSemCliente} compras sem identificação do cliente: cada uma foi contada como uma remessa.`);
   if (resumo.kitsSemQuantidade > 0) avisos.push(`${resumo.kitsSemQuantidade} itens sem quantidade no nome do kit: contados como 1 unidade.`);
 
-  ok(res, { ...resumo, conferencia, avisos }, await metaFinanceira(f, { fonteInvestimento: inv.fonte, janelaTrafego: { inicio: ini.toISOString(), fim: fim.toISOString(), deslocamentoMin: params.janelaDeslocamentoMin } }));
+  /** MC BR do RedTrack ((Front + Upsell 1 + Downsell 1 + Downsell 2) × 70% − investimento × 110%); null se o RedTrack estiver indisponível */
+  const mcBr = inv.baseMcBrCentavos != null && inv.centavos !== null ? mcBrCentavos(inv.baseMcBrCentavos, inv.centavos) : null;
+  ok(res, { ...resumo, mcBrCentavos: mcBr, conferencia, avisos }, await metaFinanceira(f, { fonteInvestimento: inv.fonte, janelaTrafego: { inicio: ini.toISOString(), fim: fim.toISOString(), deslocamentoMin: params.janelaDeslocamentoMin } }));
 });
 
 trafegoRouter.get('/parametros', async (_req, res) => {

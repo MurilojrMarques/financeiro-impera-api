@@ -47,3 +47,8 @@ export function comissaoPorRegra(valorVendaCentavos: number, pagoEm: Date | null
   if (regra.percentualBps !== null) return applyBps(valorVendaCentavos, regra.percentualBps);
   return null;
 }
+
+/** Comissão vigente (provisória): só o Call Center tem fórmula — 20% do valor vendido. Demais grupos: 0 ("em implementação"). */
+export function comissaoDaVenda(grupo: string | null | undefined, valorVendaCentavos: number): number {
+  return grupo === 'CALL_CENTER' ? Math.round(valorVendaCentavos * 0.2) : 0;
+}

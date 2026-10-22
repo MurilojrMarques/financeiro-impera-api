@@ -107,6 +107,16 @@ describe('otimização e segurança de rede', () => {
     });
   });
 
+  describe('investimento e ROAS total na visão executiva', () => {
+    it('só ANALISTA+ vê; sem RedTrack configurado o investimento fica indisponível (nunca 0 inventado) mas a receita total vem', async () => {
+      expect((await request(app).get(api(`/dashboard/trafego?${Q}`)).set('Authorization', leitura)).status).toBe(403);
+      const r = await request(app).get(api(`/dashboard/trafego?${Q}`)).set('Authorization', analista);
+      expect(r.status).toBe(200);
+      expect(r.body.data).toMatchObject({ investimentoCentavos: null, roasTotalCentesimos: null, fonteInvestimento: 'NAO_CONFIGURADO' });
+      expect(r.body.data.receitaTotalCentavos).toBeGreaterThan(0);
+    });
+  });
+
   describe('banco', () => {
     it('a sessão tem tempo limite por consulta (uma consulta presa não derruba a API)', async () => {
       const [r] = await prisma.$queryRawUnsafe<{ statement_timeout: string; idle_in_transaction_session_timeout: string }[]>(

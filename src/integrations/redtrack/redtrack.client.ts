@@ -12,6 +12,8 @@ export interface InvestimentoResultado {
   faturamentoCentavos?: number | null;
   /** downsells (revenuetype 6–9): fora do faturamento do tráfego */
   downsellsCentavos?: number | null;
+  /** Front + Upsell 1 + Downsell 1 + Downsell 2 (revenuetype2+3+6+7): base do MC BR */
+  baseMcBrCentavos?: number | null;
   compras?: number | null;
   mensagem?: string;
 }
@@ -36,6 +38,8 @@ export type Fetcher = (url: string, init: { signal: AbortSignal }) => Promise<{ 
  * 2.013.441,13 = o valor do sistema anterior. O "Front Revenue" do Copy soma também os downsells (revenuetype6 a 9): +R$ 1.732,02.
  */
 const FATURAMENTO = ['revenuetype2', 'revenuetype3'] as const;
+/** MC BR = (Front + Upsell 1 + Downsell 1 + Downsell 2) × 0,70 − investimento × 1,10 */
+const MC_BR = ['revenuetype2', 'revenuetype3', 'revenuetype6', 'revenuetype7'] as const;
 const DOWNSELLS = ['revenuetype6', 'revenuetype7', 'revenuetype8', 'revenuetype9'] as const;
 
 // ── Cache (stale-while-revalidate) ─────────────────────────────────────────────────────────────────────────────────────────
@@ -67,21 +71,23 @@ const cent = (v: Num): number => {
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 };
 
-export function somarRedtrack(linhas: Linha[], filtroOferta: string): { custoCentavos: number; faturamentoCentavos: number; downsellsCentavos: number; compras: number } {
+export function somarRedtrack(linhas: Linha[], filtroOferta: string): { custoCentavos: number; faturamentoCentavos: number; downsellsCentavos: number; baseMcBrCentavos: number; compras: number } {
   const f = filtroOferta.toLowerCase();
   let custo = 0;
   let fat = 0;
   let down = 0;
+  let base = 0;
   let compras = 0;
   for (const l of linhas) {
     if (!(l.offer ?? '').toLowerCase().includes(f)) continue;
     custo += cent(l.cost);
     for (const k of FATURAMENTO) fat += cent(l[k]);
     for (const k of DOWNSELLS) down += cent(l[k]);
+    for (const k of MC_BR) base += cent(l[k]);
     const n = Number(l.convtype2 ?? 0);
     if (Number.isFinite(n)) compras += Math.round(n);
   }
-  return { custoCentavos: custo, faturamentoCentavos: fat, downsellsCentavos: down, compras };
+  return { custoCentavos: custo, faturamentoCentavos: fat, downsellsCentavos: down, baseMcBrCentavos: base, compras };
 }
 
 /** Uma consulta de verdade ao RedTrack. A chave só existe no ambiente e nunca é logada nem devolvida. */
@@ -97,7 +103,7 @@ async function consultar(de: string, ate: string, fetcher: Fetcher): Promise<Inv
     const itens = Array.isArray(body) ? body : ((body as { items?: unknown; data?: unknown })?.items ?? (body as { data?: unknown })?.data);
     if (!Array.isArray(itens)) return { fonte: 'ERRO', centavos: null, mensagem: 'Resposta do RedTrack fora do formato esperado.' };
     const t = somarRedtrack(itens as Linha[], env.REDTRACK_OFFER_FILTER);
-    return { fonte: 'REDTRACK', centavos: t.custoCentavos, faturamentoCentavos: t.faturamentoCentavos, downsellsCentavos: t.downsellsCentavos, compras: t.compras };
+    return { fonte: 'REDTRACK', centavos: t.custoCentavos, faturamentoCentavos: t.faturamentoCentavos, downsellsCentavos: t.downsellsCentavos, baseMcBrCentavos: t.baseMcBrCentavos, compras: t.compras };
   } catch (e) {
     const abortou = (e as { name?: string }).name === 'AbortError';
     return { fonte: 'ERRO', centavos: null, mensagem: abortou ? 'RedTrack demorou demais para responder.' : 'Falha de rede ao consultar o RedTrack.' };

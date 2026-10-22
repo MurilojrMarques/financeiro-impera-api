@@ -12,6 +12,7 @@ import { tsz } from '../../shared/utils/sql';
 import { comparativoHandler, construirAlertas, dimensaoHandler, formatar, metaFinanceira, relatorio } from '../../shared/services/relatorio.service';
 import { filtrosBase, filtrosSchema, refinarPeriodo, resolverFiltro, type FiltrosQuery } from '../../shared/validators/filtros';
 import { totais } from '../../shared/repositories/ledger.repository';
+import { investimentoNoPeriodo } from '../../integrations/redtrack/redtrack.client';
 import { distribuicaoReceitas, indicadores, kpis, receitasPorGrupo } from './dashboard.service';
 
 export const dashboardRouter = Router();
@@ -35,6 +36,21 @@ dashboardRouter.get('/comparativo', q, comparativoHandler());
 dashboardRouter.get('/distribuicao-receitas', q, relatorio((f) => distribuicaoReceitas(f)));
 dashboardRouter.get('/receitas-por-grupo', q, relatorio((f) => receitasPorGrupo(f)));
 dashboardRouter.get('/receitas-por-loja', q, dimensaoHandler('loja'));
+/**
+ * Investimento em tráfego (RedTrack) e ROAS TOTAL da operação = receita total de todos os grupos ÷ investimento.
+ * Só o período vale aqui: os outros filtros (loja, grupo...) não se aplicam ao investimento, então também não entram na receita.
+ */
+dashboardRouter.get('/trafego', authorize(Roles.ANALISE), q, relatorio(async (f, req) => {
+  const base = resolverFiltro(filtrosBase.parse({ de: req.valid.query.de, ate: req.valid.query.ate, modo: req.valid.query.modo }));
+  const [inv, m] = await Promise.all([investimentoNoPeriodo(f.de, f.ate), totais(base)]);
+  return {
+    investimentoCentavos: inv.centavos,
+    receitaTotalCentavos: m.receitaCentavos,
+    roasTotalCentesimos: inv.centavos ? Math.round((m.receitaCentavos * 100) / inv.centavos) : null,
+    fonteInvestimento: inv.fonte,
+    mensagem: inv.centavos === null ? (inv.mensagem ?? null) : null,
+  };
+}));
 dashboardRouter.get('/indicadores', q, relatorio((f, req) => indicadores(f, req)));
 
 /**

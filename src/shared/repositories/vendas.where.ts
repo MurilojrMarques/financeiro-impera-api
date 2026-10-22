@@ -1,3 +1,4 @@
+import { comissaoDaVenda } from '../../modules/vendas/domain/comissao';
 import type { Prisma } from '../../generated/prisma/client';
 import type { FiltroResolvido } from '../validators/filtros';
 
@@ -68,13 +69,13 @@ type VendaLista = Prisma.VendaGetPayload<{ select: typeof vendaListSelect }>;
  * a menos que a visão administrativa explícita (`incluirX1`) tenha sido autorizada.
  */
 export function serializarVenda(v: VendaLista, mostrarX1Real: boolean) {
-  const { loja, afiliado, comissaoCentavos, ...resto } = v;
-  const comissaoPadrao = v.x1 && !mostrarX1Real ? 0 : comissaoCentavos;
+  const { loja, afiliado, comissaoCentavos: _colunaPlanilha, ...resto } = v;
+  void mostrarX1Real;
+  const comissaoPadrao = comissaoDaVenda(v.grupo, v.valorVendaCentavos);
   return {
     ...resto,
     loja: loja?.nome ?? null,
     afiliado: afiliado ?? null,
     comissaoCentavos: comissaoPadrao,
-    ...(v.x1 && !mostrarX1Real ? { comissaoX1Oculta: true } : {}),
   };
 }

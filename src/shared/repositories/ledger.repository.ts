@@ -16,7 +16,7 @@ import type { FiltroResolvido } from '../validators/filtros';
  *                receita = valor_sem_juros − perda atual; pedido integralmente perdido não conta.
  *   MOVIMENTACAO: pagamentos do período − perdas reconhecidas na DATA do evento de perda.
  *
- * Comissão X1 entra como 0 (regra padrão); o valor real fica em `x1ComissaoRealCentavos`, informativo.
+ * Comissão: só Call Center = 20% do valor vendido (ver COMISSAO_BASE); demais grupos ainda sem fórmula.
  * Valores em centavos inteiros (SUM em bigint); nenhuma conta com float.
  */
 
@@ -100,10 +100,15 @@ const COLUNAS = Prisma.raw(`
 
 const FROM = Prisma.raw(`FROM vendas v LEFT JOIN lojas l ON l.id = v."lojaId" LEFT JOIN afiliados a ON a.id = v."afiliadoId"`);
 
-const COMISSAO_BASE = `CASE WHEN v.x1 THEN 0 ELSE COALESCE(v."comissaoCentavos", 0) END`;
-const COMISSAO_REAL_X1 = `CASE WHEN v.x1 THEN COALESCE(v."comissaoCentavos", 0) ELSE 0 END`;
-const ESTIMADA = `CASE WHEN v."comissaoFonte" IN ('ESTIMADA','REGRA_AFILIADO') AND NOT v.x1 THEN COALESCE(v."comissaoCentavos", 0) ELSE 0 END`;
-const SEM_COM = `CASE WHEN v."comissaoCentavos" IS NULL THEN 1 ELSE 0 END`;
+/**
+ * Comissão (regra provisória): só o Call Center tem fórmula definida = 20% de tudo que vende (valor da venda). Para Front, Backend,
+ * Recuperação e Afiliado a fórmula ainda NÃO foi definida: ficam em 0 aqui e as telas mostram "Em implementação".
+ * A coluna `comissaoCentavos` da planilha (valor a receber da Pagah) NÃO é comissão e não é usada.
+ */
+const COMISSAO_BASE = `CASE WHEN v."grupo" = 'CALL_CENTER' THEN ROUND(v."valorVendaCentavos" * 0.2)::bigint ELSE 0 END`;
+const COMISSAO_REAL_X1 = `0`;
+const ESTIMADA = `0`;
+const SEM_COM = `0`;
 const TAXA = `COALESCE(v."taxaCallCenterCentavos", 0)`;
 const NAO_PERDIDO = `v."perdaCentavos" < v."valorVendaCentavos"`;
 

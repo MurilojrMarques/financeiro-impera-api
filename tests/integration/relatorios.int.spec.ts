@@ -150,19 +150,15 @@ describe('relatórios financeiros — valores calculados vs esperados', () => {
     expect((await get(`/reembolsos?${Q}`)).body.meta.total).toBe(2);
   });
 
-  it('comissão: X1 = 0 no total padrão, valor real só na visão administrativa explícita; ausentes sinalizados', async () => {
+  it('comissão: só o Call Center tem fórmula (20% do vendido); a coluna comissão da planilha não é usada; demais grupos = 0', async () => {
     const d = (await get(`/vendas/resumo?${Q}`)).body.data;
-    expect(d.comissaoCentavos).toBe(23000); // P1 100 + P4 120 + H1 10; X1 (50) fora
-    expect(d.x1ComissaoRealCentavos).toBe(5000);
-    expect(d.pedidosSemComissao).toBe(6);
-    expect(d.alertas.map((a: { codigo: string }) => a.codigo)).toEqual(expect.arrayContaining(['COMISSAO_AUSENTE', 'RECEITA_NAO_CLASSIFICADA', 'UNIDADES_INDISPONIVEIS', 'REEMBOLSO_PIX_LIMITACAO']));
+    expect(d.comissaoCentavos).toBe(3940); // 20% da receita vendida pelo Call Center
+    expect(d.pedidosSemComissao).toBe(0);
+    expect(d.x1ComissaoRealCentavos).toBe(0);
+    expect(d.alertas.map((a: { codigo: string }) => a.codigo)).not.toContain('COMISSAO_AUSENTE');
 
-    const padrao = (await get(`/vendas?${Q}&limit=50`, analista)).body.data.find((v: { pedido: string }) => v.pedido === 'P10');
-    expect(padrao).toMatchObject({ x1: true, comissaoCentavos: 0, comissaoX1Oculta: true });
-    const analistaTenta = (await get(`/vendas?${Q}&limit=50&incluirX1=true`, analista)).body.data.find((v: { pedido: string }) => v.pedido === 'P10');
-    expect(analistaTenta.comissaoCentavos).toBe(0); // analista não tem acesso à visão X1
-    const adm = (await get(`/vendas?${Q}&limit=50&incluirX1=true`)).body.data.find((v: { pedido: string }) => v.pedido === 'P10');
-    expect(adm.comissaoCentavos).toBe(5000);
+    const lista = (await get(`/vendas?${Q}&limit=50`, analista)).body.data as { grupo: string; valorVendaCentavos: number; comissaoCentavos: number }[];
+    for (const v of lista) expect(v.comissaoCentavos).toBe(v.grupo === 'CALL_CENTER' ? Math.round(v.valorVendaCentavos * 0.2) : 0);
   });
 
   it('afiliados: identificados pelo nome (equivalências unidas, parecidos separados), com faturamento, comissão e reembolsos', async () => {
@@ -171,7 +167,7 @@ describe('relatórios financeiros — valores calculados vs esperados', () => {
     expect(items).toHaveLength(2);
     const andre = items.find((a) => a.nome === 'André Pinheiro')!;
     // comissaoCentavos = comissão do AFILIADO (ainda sem fonte/regra = 0); a da operação (Impera) vem separada
-    expect(andre).toMatchObject({ pedidos: 2, faturamentoCentavos: 49400, comissaoCentavos: 0, comissaoOperacaoCentavos: 12000, reembolsosCentavos: 0, ticketMedioCentavos: 24700 });
+    expect(andre).toMatchObject({ pedidos: 2, faturamentoCentavos: 49400, comissaoCentavos: 0, comissaoOperacaoCentavos: 0, reembolsosCentavos: 0, ticketMedioCentavos: 24700 });
     expect(items.find((a) => a.nome === 'Andre Pinheiro Jr')).toMatchObject({ pedidos: 1, faturamentoCentavos: 8000 });
     expect(r.body.meta.total).toBe(2);
 
@@ -211,10 +207,10 @@ describe('relatórios financeiros — valores calculados vs esperados', () => {
     expect(p5).toMatchObject({ comissaoCentavos: null, comissaoFonte: 'AUSENTE', comissaoAfiliadoCentavos: 24000, comissaoAfiliadoFonte: 'REGRA_AFILIADO' });
     const resumo = (await get(`/vendas/resumo?${Q}`)).body.data;
     expect(resumo.comissaoAfiliadoCentavos).toBe(72000); // P4, P5 e P9 (afiliados): 3 × R$ 240
-    expect(resumo.comissaoCentavos).toBe(23000); // operação inalterada
+    expect(resumo.comissaoCentavos).toBe(3940); // operação: só Call Center (20%), inalterada pela regra do afiliado
     expect(resumo.alertas.map((a: { codigo: string }) => a.codigo)).toContain('COMISSAO_AFILIADO_ESTIMADA');
     const lista = (await get(`/afiliados?${Q}`)).body.data;
-    expect(lista[0]).toMatchObject({ comissaoCentavos: 72000, comissaoOperacaoCentavos: 12000 });
+    expect(lista[0]).toMatchObject({ comissaoCentavos: 72000, comissaoOperacaoCentavos: 0 });
   });
 
   it('front: upsell ÷ compra inicial por loja, sem afiliados', async () => {

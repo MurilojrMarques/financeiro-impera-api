@@ -69,7 +69,7 @@ callCenterRouter.get('/comissoes', q, relatorio(async (f) => {
     comissaoEstimadaCentavos: m.comissaoEstimadaCentavos,
     taxaCallCenterCentavos: m.taxaCallCenterCentavos,
     pedidosSemComissao: m.pedidosSemComissao,
-    observacao: 'Comissão da operação e taxa do Call Center são campos distintos e não são somados.',
+    observacao: 'Comissão do Call Center = 20% de tudo que ele vende. A taxa do Call Center (da planilha) é outro campo e não é somada.',
   };
 }, cc));
 

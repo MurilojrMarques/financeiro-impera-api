@@ -59,6 +59,8 @@ Ticket médio: `APROVADAS` = receita ÷ pedidos aprovados; `MOVIMENTACAO` = fatu
 
 ## 5. Comissão
 
+> **VIGENTE (substitui o que está abaixo para a comissão da operação):** a coluna `comissao` da planilha é o valor líquido a receber da Pagah — **não é comissão** e deixou de ser usada. Hoje só existe fórmula para o **Call Center: 20% de tudo que ele vende** (valor da venda, no período e modo do filtro). Para Front, Backend, Recuperação e o total do Dashboard a fórmula **não está definida**: a API devolve 0 e o front mostra "Em implementação". A comissão do afiliado (campo distinto) não foi alterada. O texto abaixo é histórico.
+
 Fonte (`comissaoFonte`) por prioridade — maior substitui menor, igual = o mais recente prevalece (correção):
 
 `HISTORICO_EXATA` > `PAGAH` > `REDTRACK` > `REGRA_AFILIADO` > `ESTIMADA` > `AUSENTE`
