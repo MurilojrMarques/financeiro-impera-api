@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const envMock = vi.hoisted(() => ({ REDTRACK_API_KEY: 'chave-de-teste' as string | undefined, REDTRACK_BASE_URL: 'https://rt.example', REDTRACK_OFFER_FILTER: 'pagah', REDTRACK_TIMEOUT_MS: 1000 }));
+const envMock = vi.hoisted(() => ({ REDTRACK_API_KEY: 'chave-de-teste' as string | undefined, REDTRACK_BASE_URL: 'https://rt.example', REDTRACK_OFFER_FILTER: 'pagah', REDTRACK_TIMEOUT_MS: 1000, NODE_ENV: 'test', LOG_LEVEL: 'silent' }));
 vi.mock('../../src/config/env', () => ({ env: envMock }));
 
 import { investimentoNoPeriodo, limparCacheRedtrack, somarCusto, somarRedtrack, type Fetcher } from '../../src/integrations/redtrack/redtrack.client';

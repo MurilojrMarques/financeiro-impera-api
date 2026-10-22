@@ -2,7 +2,7 @@ import request from 'supertest';
 import { prisma } from '../../src/config/database';
 import { createApp } from '../../src/app';
 import { hashPassword } from '../../src/modules/auth/password.service';
-import { emailActionLimiter, forgotLimiter, globalLimiter, linkLimiter, loginLimiter, sensitiveLimiter, syncTriggerLimiter } from '../../src/middlewares/rate-limit.middleware';
+import { resetarLimitadores } from '../../src/middlewares/rate-limit.middleware';
 import { mailOutbox } from '../../src/shared/services/mail.service';
 import type { PerfilUsuario } from '../../src/generated/prisma/client';
 
@@ -14,7 +14,7 @@ const TABELAS = [
 ];
 
 export async function resetLimiters(): Promise<void> {
-  for (const ip of ['::ffff:127.0.0.1', '127.0.0.1', '::1']) for (const l of [loginLimiter, globalLimiter, sensitiveLimiter, syncTriggerLimiter, forgotLimiter, linkLimiter, emailActionLimiter]) await l.resetKey(ip);
+  resetarLimitadores();
 }
 
 export async function resetDb(): Promise<void> {

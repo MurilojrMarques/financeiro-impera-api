@@ -68,6 +68,7 @@ export const ROUTES: RouteDoc[] = [
   rel('/dashboard/comparativo', 'Dashboard', 'Período atual × anterior de mesma duração', TODOS),
   rel('/dashboard/distribuicao-receitas', 'Dashboard', 'Participação de cada grupo (soma 100%)', TODOS),
   rel('/dashboard/receitas-por-grupo', 'Dashboard', 'Grupos exclusivos + backendTotal agregado', TODOS),
+  rel('/dashboard/opcoes', 'Dashboard', 'Valores distintos de loja/produto/origem/campanha/atendente no período (listas dos filtros)', TODOS, { query: S.dashOpcoes }),
   rel('/dashboard/receitas-por-loja', 'Dashboard', 'Receita por loja', TODOS),
   rel('/dashboard/indicadores', 'Dashboard', 'Catálogo de indicadores com metodologia', TODOS),
 

@@ -65,6 +65,10 @@ const schema = z.object({
   PASSWORD_HISTORY: z.coerce.number().int().min(0).max(24).default(5),
 
   SYNC_ENABLED: bool.default(true),
+  // Sincronização automática DENTRO da API (sem processo separado): a cada N minutos, e na subida se estiver velha
+  AUTO_SYNC_ENABLED: bool.default(true),
+  AUTO_SYNC_INTERVAL_MINUTES: z.coerce.number().int().min(5).max(1440).default(60),
+  AUTO_SYNC_STARTUP_DELAY_SECONDS: z.coerce.number().int().min(0).max(600).default(20),
   SYNC_EVENTOS_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
   SYNC_REDTRACK_INTERVAL_SECONDS: z.coerce.number().int().min(30).default(1800),
   SYNC_RECONCILE_TIME: z.string().regex(/^\d{2}:\d{2}$/).default('03:30'),
@@ -75,6 +79,9 @@ const schema = z.object({
 
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().positive().default(10),
   RATE_LIMIT_LOGIN_WINDOW_SECONDS: z.coerce.number().int().positive().default(900),
+  RATE_LIMIT_LOGIN_IP_MAX: z.coerce.number().int().positive().default(200),
+  DB_POOL_MAX: z.coerce.number().int().min(2).max(50).default(10),
+  DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(1000).default(60_000),
   RATE_LIMIT_GLOBAL_MAX: z.coerce.number().int().positive().default(300),
 });
 

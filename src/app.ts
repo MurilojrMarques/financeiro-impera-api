@@ -1,3 +1,4 @@
+import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import express, { type Express } from 'express';
@@ -31,6 +32,8 @@ export function createApp(): Express {
     }),
   );
   app.use(helmet());
+  // Gzip nas respostas de dados (listas de 90–200 KB caem para ~10 KB). Rotas de autenticação ficam sem compressão (BREACH).
+  app.use(compression({ threshold: 1024, filter: (req, res) => !req.path.startsWith('/api/v1/auth') && compression.filter(req, res) }));
   app.use(cors(buildCorsOptions()));
   app.use(express.json({ limit: '100kb' }));
   app.use(cookieParser());
@@ -45,6 +48,12 @@ export function createApp(): Express {
     app.use('/docs', ...guard, swaggerUi.serve, swaggerUi.setup(spec, { customSiteTitle: 'API Financeira Impera' }));
   }
 
+  // Dados financeiros nunca ficam em cache compartilhado (proxy/CDN). `private, no-cache` permite revalidar por ETag (304) no navegador;
+  // as rotas de autenticação não são guardadas em lugar nenhum.
+  app.use('/api/v1', (req, res, next) => {
+    res.setHeader('Cache-Control', req.path.startsWith('/auth') ? 'no-store' : 'private, no-cache');
+    next();
+  });
   app.use('/api/v1', globalLimiter, apiRouter);
 
   app.use(notFoundHandler);

@@ -15,11 +15,7 @@ export const parametrosSchema = z.object({
     regras: z.array(z.object({ contem: z.string().trim().min(1).max(60), centavos: z.number().int().min(0).max(10_000_000) })).max(30),
   }),
   metaMargemBp: z.number().int().min(0).max(10000),
-  /**
-   * Deslocamento (min) da janela do dia do tráfego em relação à meia-noite de São Paulo. O RedTrack (base do Copy/Pulso)
-   * fecha o "dia" 3h antes da planilha: medido em 19/10/2026, a janela deslocada -180 deu 502 compras / R$ 194.638,56 contra
-   * 504 / R$ 194.642,09 do Copy, e a meia-noite de SP deu 522 / R$ 202.984,70. Use 0 para o dia civil de São Paulo.
-   */
+  /** Deslocamento (min) da janela do dia em relação à meia-noite de São Paulo. Padrão 0: o dia da Pagah (meia-noite a meia-noite de Brasília). */
   janelaDeslocamentoMin: z.number().int().min(-720).max(720),
 });
 export type Parametros = z.infer<typeof parametrosSchema>;
@@ -34,7 +30,7 @@ export const PARAMETROS_PADRAO: Parametros = {
   freteCentavos: 1790,
   custoUnitario: { padraoCentavos: 610, regras: [{ contem: 'gel', centavos: 990 }] },
   metaMargemBp: 2000,
-  janelaDeslocamentoMin: -180,
+  janelaDeslocamentoMin: 0,
 };
 
 const semAcento = (s: string): string => s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();

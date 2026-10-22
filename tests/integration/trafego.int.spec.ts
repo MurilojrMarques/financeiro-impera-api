@@ -49,7 +49,8 @@ describe('tráfego: faturamento Front, frete por remessa e janela de datas', () 
     expect(res.status).toBe(200);
     // A1 + A2 + B1 = 3 × 397 + upsell 197 = 1.388,00 (C1 é do dia 20; B1 estornada continua no faturamento)
     expect(res.body.data.faturamentoCentavos).toBe(138_800);
-    expect(res.body.data.pedidos).toBe(3);
+    expect(res.body.data.pedidos).toBe(4); // 3 compras + 1 upsell: todos os pedidos Pagah do Front
+    expect(res.body.data.conferencia.fonteBase).toBe('PAGAH');
     expect(res.body.meta.timezone).toBe('America/Sao_Paulo');
   });
 
@@ -87,7 +88,7 @@ describe('tráfego: faturamento Front, frete por remessa e janela de datas', () 
     const res = await get('/trafego/resumo?de=2026-10-19&ate=2026-10-19');
     // [19/10 00:00Z, 20/10 00:00Z): A1 + A2 + upsell A3; B1 (23:30 SP = 02:30Z de 20/10) fica para o dia seguinte
     expect(res.body.data.faturamentoCentavos).toBe(99_100);
-    expect(res.body.data.pedidos).toBe(2);
+    expect(res.body.data.pedidos).toBe(3); // A1 + A2 + upsell A3
     expect(res.body.data.remessas).toBe(1);
     expect(res.body.meta.janelaTrafego).toMatchObject({ inicio: '2026-10-19T00:00:00.000Z', fim: '2026-10-20T00:00:00.000Z', deslocamentoMin: -180 });
   });

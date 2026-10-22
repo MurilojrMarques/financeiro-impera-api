@@ -7,6 +7,8 @@ import { GoogleSheetsClient } from '../../integrations/google-sheets/google-shee
 import { GoogleSheetsService } from '../../integrations/google-sheets/google-sheets.service';
 import { authenticate } from '../../middlewares/auth.middleware';
 import { authorize, Roles } from '../../middlewares/authorization.middleware';
+import { limiteDesatualizadoSegundos } from '../../config/sync-policy';
+import { estadoSyncAutomatica } from '../../jobs/auto-sync';
 import { syncTriggerLimiter } from '../../middlewares/rate-limit.middleware';
 import { validate } from '../../middlewares/validate.middleware';
 import { Errors } from '../../shared/errors/app-error';
@@ -48,7 +50,7 @@ sincronizacaoRouter.get('/status', authorize(Roles.LEITURA), async (req, res) =>
   ]);
   const detalhado = req.user!.perfil === 'ADMIN' || req.user!.perfil === 'FINANCEIRO';
   const eventos = fontes.find((f) => f.tipo === 'EVENTOS');
-  const limite = env.STALE_AFTER_SECONDS * 1000;
+  const limite = limiteDesatualizadoSegundos() * 1000;
   const eventosAtualizado = !!eventos?.ultimoSucessoEm && Date.now() - eventos.ultimoSucessoEm.getTime() <= limite;
   const algumErro = fontes.some((f) => !['ATUALIZADA', 'ATUALIZADA_COM_ERROS', 'NUNCA_SINCRONIZADA'].includes(f.estado));
   ok(res, {
@@ -56,7 +58,14 @@ sincronizacaoRouter.get('/status', authorize(Roles.LEITURA), async (req, res) =>
     dadosDesatualizados: !eventosAtualizado,
     ultimaSincronizacao: eventos?.ultimoSucessoEm ?? null,
     sincronizandoAgora: emExecucao ? { fonte: emExecucao.fonte, desde: emExecucao.iniciadaEm } : null,
-    limiteDesatualizadoSegundos: env.STALE_AFTER_SECONDS,
+    limiteDesatualizadoSegundos: limiteDesatualizadoSegundos(),
+    sincronizacaoAutomatica: {
+      ativa: estadoSyncAutomatica.ativa,
+      intervaloMinutos: env.AUTO_SYNC_INTERVAL_MINUTES,
+      proximaEm: estadoSyncAutomatica.proximaEm,
+      ultimaTentativaEm: estadoSyncAutomatica.ultimaTentativaEm,
+      ultimoResultado: estadoSyncAutomatica.ultimoResultado,
+    },
     fontes: fontes.map((f) => ({
       fonte: f.tipo,
       estado: f.estado,

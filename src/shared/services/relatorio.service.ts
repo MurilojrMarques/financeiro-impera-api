@@ -1,3 +1,4 @@
+import { limiteDesatualizadoSegundos } from '../../config/sync-policy';
 import type { Request, RequestHandler, Response } from 'express';
 import { prisma } from '../../config/database';
 import { env } from '../../config/env';
@@ -42,7 +43,7 @@ const METODOLOGIA: Record<FiltroResolvido['modo'], string> = {
 export async function ultimaSincronizacaoEventos(): Promise<{ em: Date | null; desatualizado: boolean }> {
   const fonte = await prisma.fonteDados.findUnique({ where: { tipo: 'EVENTOS' }, select: { ultimoSucessoEm: true } });
   const em = fonte?.ultimoSucessoEm ?? null;
-  const desatualizado = !em || Date.now() - em.getTime() > env.STALE_AFTER_SECONDS * 1000;
+  const desatualizado = !em || Date.now() - em.getTime() > limiteDesatualizadoSegundos() * 1000;
   return { em, desatualizado };
 }
 

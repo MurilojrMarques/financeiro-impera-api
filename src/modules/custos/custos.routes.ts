@@ -81,7 +81,7 @@ custosRouter.get('/:id/anexos', validate({ params: idParams }), async (req, res)
 custosRouter.get('/:id/anexos/:anexoId/download', validate({ params: anexoParams }), async (req, res) => {
   const { anexo, conteudo } = await svc.lerAnexo(req.valid.params.id, req.valid.params.anexoId);
   res.setHeader('Content-Type', anexo.mime);
-  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(anexo.nomeOriginal)}"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${anexo.nomeOriginal.replace(/[^\x20-\x7e]|["\\]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(anexo.nomeOriginal)}`);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'private, no-store');
   res.send(conteudo);

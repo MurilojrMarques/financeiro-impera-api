@@ -5,7 +5,7 @@ import { patchBody, regraBody as classRegraBody, simularBody } from '../modules/
 import {
   atualizarCategoriaBody, atualizarCustoBody, criarCategoriaBody, criarCustoBody, criarRecorrenciaBody, listaQuery as custosListaQuery,
 } from '../modules/custos/custos.schemas';
-import { evolucaoQuery } from '../modules/dashboard/dashboard.routes';
+import { evolucaoQuery, opcoesQuery } from '../modules/dashboard/dashboard.routes';
 import { atualizarRegraBody, criarRegraBody } from '../modules/financeiro/financeiro.routes';
 import { redtrackQuery } from '../modules/redtrack/redtrack.routes';
 import { pagina } from '../modules/sincronizacao/sincronizacao.routes';
@@ -27,6 +27,7 @@ export const adminRoutesSchemas = {
   usuariosAtualizar: updateBody,
   usuariosStatus: statusBody,
   usuariosPerfil: perfilBody,
+  dashOpcoes: opcoesQuery,
   dashEvolucao: evolucaoQuery,
   afiliadosLista: afiliadosQuery,
   afiliadoAlias: z.object({ alias: z.string().min(2).max(120) }),

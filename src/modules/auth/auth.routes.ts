@@ -1,14 +1,14 @@
 import { Router } from 'express';
 import { authenticate } from '../../middlewares/auth.middleware';
 import { csrfForCookieAuth } from '../../middlewares/csrf.middleware';
-import { forgotLimiter, linkLimiter, loginLimiter, sensitiveLimiter } from '../../middlewares/rate-limit.middleware';
+import { forgotIpLimiter, forgotLimiter, linkLimiter, loginIpLimiter, loginLimiter, sensitiveLimiter } from '../../middlewares/rate-limit.middleware';
 import { validate } from '../../middlewares/validate.middleware';
 import * as c from './auth.controller';
 import { changePasswordBody, forgotPasswordBody, loginBody, refreshBody, resetPasswordBody, sessionIdParams, tokenBody } from './auth.schemas';
 
 export const authRouter = Router();
 
-authRouter.post('/login', loginLimiter, validate({ body: loginBody }), c.login);
+authRouter.post('/login', loginIpLimiter, loginLimiter, validate({ body: loginBody }), c.login);
 authRouter.post('/refresh', sensitiveLimiter, validate({ body: refreshBody }), csrfForCookieAuth, c.refresh);
 authRouter.post('/logout', validate({ body: refreshBody }), csrfForCookieAuth, c.logout);
 
@@ -21,7 +21,7 @@ authRouter.delete('/sessions/:id', pending, validate({ params: sessionIdParams }
 
 // Fluxos públicos de conta (sem sessão): recuperação de senha e ativação de convite. Corpo JSON, sem cookies => sem CSRF.
 authRouter.get('/config', c.config);
-authRouter.post('/forgot-password', forgotLimiter, validate({ body: forgotPasswordBody }), c.forgotPassword);
+authRouter.post('/forgot-password', forgotIpLimiter, forgotLimiter, validate({ body: forgotPasswordBody }), c.forgotPassword);
 authRouter.post('/link/validar', linkLimiter, validate({ body: tokenBody }), c.validarLink);
 authRouter.post('/reset-password', linkLimiter, validate({ body: resetPasswordBody }), c.resetPassword);
 authRouter.post('/activate', linkLimiter, validate({ body: resetPasswordBody }), c.activateAccount);

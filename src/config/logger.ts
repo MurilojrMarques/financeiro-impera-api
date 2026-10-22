@@ -13,6 +13,8 @@ export const logger = pino({
       '*.senhaAtual',
       '*.novaSenha',
       '*.refreshToken',
+      '*.token',
+      '*.tokenHash',
       '*.accessToken',
       '*.private_key',
       '*.client_email',

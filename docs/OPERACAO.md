@@ -82,3 +82,11 @@ Após restaurar, o worker faz a reconciliação diária e converge com a planilh
 
 Logs são JSON (Pino) com `requestId`; `Authorization`, cookies e campos de senha/token são redigidos.
 Se um lock ficar preso (processo morto), a conexão cai e o PostgreSQL o libera sozinho — não há lock em tabela para limpar.
+
+## Sincronização automática (a cada 1 hora)
+- A **própria API** sincroniza sozinha: a cada `AUTO_SYNC_INTERVAL_MINUTES` (padrão **60**) roda EVENTOS e REDTRACK em modo **incremental**; na subida da API (após `AUTO_SYNC_STARTUP_DELAY_SECONDS`) sincroniza na hora se a última foi há mais que o intervalo (a máquina pode ter ficado desligada); e uma vez por dia (`SYNC_RECONCILE_TIME`, 03:30 de Brasília) faz a **reconciliação completa** das três abas.
+- Fontes que nunca sincronizaram fazem a importação INICIAL automaticamente.
+- Usa o **mesmo lock** do banco da sincronização manual: nunca roda duas ao mesmo tempo; se a tela "Integrações" (botão **Sincronizar agora**) estiver rodando, o ciclo automático é adiado sem erro.
+- "Dados desatualizados" passa a valer só depois de **1,5 × o intervalo** (90 min com 60): `limiteDesatualizadoSegundos` em `/integracoes/sheets/status`.
+- Desligar: `AUTO_SYNC_ENABLED=false` (ou `SYNC_ENABLED=false`, chave geral). Se usar o worker separado (`npm run start:worker`), desligue aqui para não duplicar.
+- A tela **Integrações** mostra a frequência e a próxima execução; os botões **Sincronizar agora** e **Reconciliação completa** (ADMIN) continuam.

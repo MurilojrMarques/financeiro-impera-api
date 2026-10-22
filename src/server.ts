@@ -3,6 +3,7 @@ import { createApp } from './app';
 import { checkDatabase, closeDatabase } from './config/database';
 import { env } from './config/env';
 import { logger } from './config/logger';
+import { iniciarSyncAutomatica } from './jobs/auto-sync';
 
 async function main(): Promise<void> {
   if (!(await checkDatabase())) {
@@ -12,6 +13,7 @@ async function main(): Promise<void> {
   const app = createApp();
   const server: Server = app.listen(env.PORT, () => logger.info({ port: env.PORT }, 'API iniciada'));
   server.requestTimeout = 60_000;
+  const syncAuto = iniciarSyncAutomatica();
   server.headersTimeout = 30_000;
 
   let encerrando = false;
@@ -20,9 +22,11 @@ async function main(): Promise<void> {
     encerrando = true;
     logger.info({ signal }, 'encerrando API');
     // para de aceitar conexões, aguarda as em andamento e fecha o banco
-    server.close(() => {
-      closeDatabase().finally(() => process.exit(0));
-    });
+    void (syncAuto?.parar() ?? Promise.resolve()).finally(() =>
+      server.close(() => {
+        closeDatabase().finally(() => process.exit(0));
+      }),
+    );
     setTimeout(() => process.exit(1), 15_000).unref();
   };
   process.on('SIGINT', () => shutdown('SIGINT'));
