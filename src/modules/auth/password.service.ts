@@ -33,6 +33,7 @@ const normalizar = (s: string): string => s.normalize('NFD').replace(/\p{Diacrit
 
 export interface ContextoSenha {
   email?: string | null;
+  usuario?: string | null;
   nome?: string | null;
 }
 
@@ -53,9 +54,9 @@ export function passwordPolicyIssue(plain: string, ctx: ContextoSenha = {}): str
   const comumComSufixo = (c: string): boolean => n === c || (n.startsWith(c) && (c.length >= 6 ? n.length - c.length <= 6 : /^\d{0,10}$/.test(n.slice(c.length))));
   if (COMUNS.some(comumComSufixo)) return 'Essa senha é muito comum. Escolha outra';
 
-  const partes = [ctx.email?.split('@')[0], ...(ctx.nome ? ctx.nome.split(/\s+/) : [])]
+  const partes = [ctx.email?.split('@')[0], ctx.usuario, ...(ctx.nome ? ctx.nome.split(/\s+/) : [])]
     .map((p) => normalizar(p ?? ''))
     .filter((p) => p.length >= 4);
-  if (partes.some((p) => n.includes(p))) return 'A senha não pode conter seu nome ou e-mail';
+  if (partes.some((p) => n.includes(p))) return 'A senha não pode conter seu nome, usuário ou e-mail';
   return null;
 }

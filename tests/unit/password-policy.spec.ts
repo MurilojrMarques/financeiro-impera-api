@@ -23,8 +23,8 @@ describe('política de senha', () => {
 
   it('não permite conter o nome nem a parte local do e-mail', () => {
     const ctx = { email: 'carla.mendes@empresa.com', nome: 'Carla Mendes' };
-    expect(passwordPolicyIssue('Carla-Mendes-2026', ctx)).toMatch(/nome ou e-mail/);
-    expect(passwordPolicyIssue('xx-carlamendes-99-yy', ctx)).toMatch(/nome ou e-mail/);
+    expect(passwordPolicyIssue('Carla-Mendes-2026', ctx)).toMatch(/nome, usuário ou e-mail/);
+    expect(passwordPolicyIssue('xx-carlamendes-99-yy', ctx)).toMatch(/nome, usuário ou e-mail/);
     expect(passwordPolicyIssue('Cobalto-Pivo-Tinta-47', ctx)).toBeNull();
   });
 });

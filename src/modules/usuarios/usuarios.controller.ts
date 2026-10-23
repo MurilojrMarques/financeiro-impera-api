@@ -15,7 +15,7 @@ export async function get(req: Request, res: Response): Promise<void> {
 
 export async function create(req: Request, res: Response): Promise<void> {
   const u = await svc.create(req.user!.id, req.valid.body);
-  await audit(req, 'usuario.criado', 'usuario', u.id, { email: u.email, perfil: u.perfil, convite: u.conviteEnviado });
+  await audit(req, 'usuario.criado', 'usuario', u.id, { email: u.email, usuario: u.usuario, perfil: u.perfil, convite: u.conviteEnviado });
   created(res, u);
 }
 

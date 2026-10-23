@@ -23,7 +23,8 @@ const usuarioOuIp: Chave = (req) => {
 };
 
 const emailDoCorpo = (req: Request): string | null => {
-  const e = (req.body as { email?: unknown } | undefined)?.email;
+  const b = req.body as { login?: unknown; email?: unknown } | undefined;
+  const e = b?.login ?? b?.email;
   return typeof e === 'string' && e.length > 0 && e.length <= 254 ? e.trim().toLowerCase() : null;
 };
 

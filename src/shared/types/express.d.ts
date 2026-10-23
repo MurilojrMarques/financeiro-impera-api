@@ -4,7 +4,7 @@ declare global {
   namespace Express {
     interface AuthUser {
       id: string;
-      email: string;
+      email: string | null;
       perfil: PerfilUsuario;
       sessaoId: string;
     }

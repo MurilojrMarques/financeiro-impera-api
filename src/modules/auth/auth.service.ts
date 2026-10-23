@@ -24,7 +24,8 @@ export interface AuthResult {
 export interface PublicUser {
   id: string;
   nome: string;
-  email: string;
+  email: string | null;
+  usuario: string | null;
   perfil: string;
   trocaSenhaObrigatoria: boolean;
 }
@@ -32,8 +33,8 @@ export interface PublicUser {
 const refreshExpiry = () => new Date(Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 86_400_000);
 const dorme = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-function toPublic(u: { id: string; nome: string; email: string; perfil: string; trocaSenhaObrig: boolean }): PublicUser {
-  return { id: u.id, nome: u.nome, email: u.email, perfil: u.perfil, trocaSenhaObrigatoria: u.trocaSenhaObrig };
+function toPublic(u: { id: string; nome: string; email: string | null; usuario: string | null; perfil: string; trocaSenhaObrig: boolean }): PublicUser {
+  return { id: u.id, nome: u.nome, email: u.email, usuario: u.usuario, perfil: u.perfil, trocaSenhaObrigatoria: u.trocaSenhaObrig };
 }
 
 /** Resposta de erro idêntica para qualquer problema de link: nunca diz se expirou, já foi usado ou nunca existiu. */
@@ -51,12 +52,13 @@ async function senhaReaproveitada(usuarioId: string, senhaHashAtual: string, nov
 }
 
 export class AuthService {
-  async login(email: string, senha: string, ctx: SessionContext): Promise<AuthResult> {
-    const usuario = await prisma.usuario.findUnique({ where: { email } });
+  /** `login` pode ser o e-mail (tem @) ou o nome de usuário. */
+  async login(login: string, senha: string, ctx: SessionContext): Promise<AuthResult> {
+    const usuario = await prisma.usuario.findUnique({ where: login.includes('@') ? { email: login } : { usuario: login } });
     const valid = await verifyPassword(usuario?.senhaHash ?? null, senha);
     const bloqueado = !!usuario?.bloqueadoAte && usuario.bloqueadoAte > new Date();
 
-    // Mesma resposta para e-mail inexistente, senha errada, conta inativa, convite pendente ou conta bloqueada.
+    // Mesma resposta para login inexistente, senha errada, conta inativa, convite pendente ou conta bloqueada.
     if (!usuario || !valid || !usuario.ativo || bloqueado) {
       if (usuario?.ativo && !valid && !bloqueado) await this.registrarFalha(usuario, ctx);
       else if (usuario && bloqueado) await audit(null, 'auth.login_bloqueado', 'usuario', usuario.id, { ip: ctx.ip }, usuario.id);
@@ -79,7 +81,7 @@ export class AuthService {
   }
 
   /** Conta falhas consecutivas (incremento atômico); ao atingir o limite bloqueia por LOGIN_LOCK_MINUTES e avisa o titular por e-mail. */
-  private async registrarFalha(usuario: { id: string; nome: string; email: string }, ctx: SessionContext): Promise<void> {
+  private async registrarFalha(usuario: { id: string; nome: string; email: string | null }, ctx: SessionContext): Promise<void> {
     const atual = await prisma.usuario.update({ where: { id: usuario.id }, data: { falhasLogin: { increment: 1 } }, select: { falhasLogin: true } });
     if (atual.falhasLogin < env.LOGIN_MAX_FAILURES) return;
     await prisma.usuario.update({
@@ -87,7 +89,7 @@ export class AuthService {
       data: { falhasLogin: 0, bloqueadoAte: new Date(Date.now() + env.LOGIN_LOCK_MINUTES * 60_000) },
     });
     await audit(null, 'auth.conta_bloqueada', 'usuario', usuario.id, { ip: ctx.ip, minutos: env.LOGIN_LOCK_MINUTES }, usuario.id);
-    void enviarEmail(emailContaBloqueada(usuario.email, usuario.nome, env.LOGIN_LOCK_MINUTES, { ip: ctx.ip }));
+    if (usuario.email) void enviarEmail(emailContaBloqueada(usuario.email, usuario.nome, env.LOGIN_LOCK_MINUTES, { ip: ctx.ip }));
   }
 
   /** Rotaciona o refresh token. Reuso de token antigo revoga a sessão inteira. */
@@ -172,13 +174,13 @@ export class AuthService {
   async changePassword(userId: string, currentSessionId: string, atual: string, nova: string, ctx: SessionContext = {}): Promise<void> {
     const u = await prisma.usuario.findUnique({ where: { id: userId } });
     if (!u || !(await verifyPassword(u.senhaHash, atual))) throw Errors.unauthorized('Senha atual incorreta');
-    const issue = passwordPolicyIssue(nova, { email: u.email, nome: u.nome });
+    const issue = passwordPolicyIssue(nova, { email: u.email, usuario: u.usuario, nome: u.nome });
     if (issue) throw Errors.validation([{ path: 'novaSenha', message: issue }]);
     if (await senhaReaproveitada(u.id, u.senhaHash, nova)) {
       throw Errors.validation([{ path: 'novaSenha', message: MENSAGEM_SENHA_REUSADA }]);
     }
     await this.aplicarNovaSenha(u, nova, { manterSessaoId: currentSessionId }); // encerra as OUTRAS sessões
-    void enviarEmail(emailSenhaAlterada(u.email, u.nome, { ip: ctx.ip }));
+    if (u.email) void enviarEmail(emailSenhaAlterada(u.email, u.nome, { ip: ctx.ip }));
   }
 
   /**
@@ -188,7 +190,7 @@ export class AuthService {
   async solicitarRedefinicao(email: string, ctx: SessionContext): Promise<void> {
     const trabalho = async () => {
       const u = await prisma.usuario.findUnique({ where: { email } });
-      if (!u || !u.ativo) return;
+      if (!u || !u.ativo || !u.email) return;
       if ((await contarEmitidosNaUltimaHora(u.id, 'RESET_SENHA')) >= env.FORGOT_PASSWORD_MAX_PER_HOUR) {
         await audit(null, 'auth.reset_limite_conta', 'usuario', u.id, { ip: ctx.ip }, u.id);
         return;
@@ -215,7 +217,7 @@ export class AuthService {
     const u = t.usuario;
 
     // valida a senha ANTES de consumir o token: um erro de digitação não queima o link
-    const issue = passwordPolicyIssue(nova, { email: u.email, nome: u.nome });
+    const issue = passwordPolicyIssue(nova, { email: u.email, usuario: u.usuario, nome: u.nome });
     if (issue) throw Errors.validation([{ path: 'novaSenha', message: issue }]);
     if (tipo === 'RESET_SENHA' && (await senhaReaproveitada(u.id, u.senhaHash, nova))) {
       throw Errors.validation([{ path: 'novaSenha', message: MENSAGEM_SENHA_REUSADA }]);
@@ -224,7 +226,7 @@ export class AuthService {
     if (!(await consumirToken(t.id))) throw linkInvalido(); // outra requisição usou o link no mesmo instante
     await this.aplicarNovaSenha(u, nova);
     await audit(null, tipo === 'RESET_SENHA' ? 'auth.reset_concluido' : 'auth.convite_aceito', 'usuario', u.id, { ip: ctx.ip }, u.id);
-    void enviarEmail(emailSenhaAlterada(u.email, u.nome, { ip: ctx.ip }));
+    if (u.email) void enviarEmail(emailSenhaAlterada(u.email, u.nome, { ip: ctx.ip }));
   }
 
   listSessions(userId: string) {

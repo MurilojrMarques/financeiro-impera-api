@@ -45,9 +45,9 @@ function respond(res: Response, r: AuthResult): void {
 }
 
 export async function login(req: Request, res: Response): Promise<void> {
-  const { email, senha } = req.valid.body;
+  const { login, senha } = req.valid.body;
   try {
-    const r = await authService.login(email, senha, ctx(req));
+    const r = await authService.login(login, senha, ctx(req));
     await audit(req, 'auth.login', 'usuario', r.usuario.id, undefined, r.usuario.id);
     respond(res, r);
   } catch (e) {

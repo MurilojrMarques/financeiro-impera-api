@@ -108,7 +108,10 @@ enum OperadorClassificacao {
 
 model Usuario {
   id               String        @id @default(uuid()) @db.Uuid
-  email            String        @unique
+  /// ao menos um entre e-mail e usuário é obrigatório (CHECK no banco); o login aceita qualquer um dos dois
+  email            String?       @unique
+  /// nome de usuário para login (minúsculas, 3–32 caracteres: letras, números, ponto, hífen e sublinhado)
+  usuario          String?       @unique
   nome             String
   senhaHash        String
   perfil           PerfilUsuario

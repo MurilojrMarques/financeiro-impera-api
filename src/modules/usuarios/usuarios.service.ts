@@ -12,6 +12,7 @@ const publicSelect = {
   id: true,
   nome: true,
   email: true,
+  usuario: true,
   perfil: true,
   ativo: true,
   trocaSenhaObrig: true,
@@ -28,7 +29,7 @@ export class UsuariosService {
       ...(q.perfil ? { perfil: q.perfil } : {}),
       ...(q.ativo !== undefined ? { ativo: q.ativo } : {}),
       ...(q.busca
-        ? { OR: [{ nome: { contains: q.busca, mode: 'insensitive' } }, { email: { contains: q.busca, mode: 'insensitive' } }] }
+        ? { OR: [{ nome: { contains: q.busca, mode: 'insensitive' } }, { email: { contains: q.busca, mode: 'insensitive' } }, { usuario: { contains: q.busca, mode: 'insensitive' } }] }
         : {}),
     };
     const [total, items] = await Promise.all([
@@ -49,24 +50,27 @@ export class UsuariosService {
    * usuário define a senha pelo link de uso único enviado por e-mail (o administrador nunca conhece a senha). Com `senhaTemporaria`
    * (legado) a conta exige troca no primeiro acesso.
    */
-  async create(actorId: string, input: { nome: string; email: string; perfil: PerfilUsuario; senhaTemporaria?: string }) {
-    if (await prisma.usuario.findUnique({ where: { email: input.email }, select: { id: true } })) {
-      throw Errors.conflict('E-mail já cadastrado');
-    }
+  async create(actorId: string, input: { nome: string; email?: string; usuario?: string; perfil: PerfilUsuario; senhaTemporaria?: string }) {
+    await this.garantirLivre(input.email, input.usuario);
     if (input.senhaTemporaria) {
-      const issue = passwordPolicyIssue(input.senhaTemporaria, { email: input.email, nome: input.nome });
+      const issue = passwordPolicyIssue(input.senhaTemporaria, { email: input.email, usuario: input.usuario, nome: input.nome });
       if (issue) throw Errors.validation([{ path: 'senhaTemporaria', message: issue }]);
       const u = await prisma.usuario.create({
-        data: { nome: input.nome, email: input.email, perfil: input.perfil, senhaHash: await hashPassword(input.senhaTemporaria), trocaSenhaObrig: true },
+        data: {
+          nome: input.nome, email: input.email ?? null, usuario: input.usuario ?? null, perfil: input.perfil,
+          senhaHash: await hashPassword(input.senhaTemporaria), trocaSenhaObrig: true,
+        },
         select: publicSelect,
       });
       return { ...u, conviteEnviado: false };
     }
+    if (!input.email) throw Errors.validation([{ path: 'senhaTemporaria', message: 'Sem e-mail não é possível enviar convite: informe uma senha inicial' }]);
     if (!emailConfigurado()) throw Errors.unavailable('Envio de e-mail não configurado: não é possível enviar o convite');
     const u = await prisma.usuario.create({
       data: {
         nome: input.nome,
         email: input.email,
+        usuario: input.usuario ?? null,
         perfil: input.perfil,
         senhaHash: await hashPassword(randomBytes(48).toString('base64url')), // ninguém conhece esta senha
         convitePendente: true,
@@ -77,10 +81,23 @@ export class UsuariosService {
     return { ...u, conviteEnviado };
   }
 
+  /** E-mail e usuário são únicos (o usuário é guardado em minúsculas, então a comparação não diferencia maiúsculas). */
+  private async garantirLivre(email: string | null | undefined, usuario: string | null | undefined, exceto?: string): Promise<void> {
+    if (email) {
+      const o = await prisma.usuario.findUnique({ where: { email }, select: { id: true } });
+      if (o && o.id !== exceto) throw Errors.conflict('E-mail já cadastrado');
+    }
+    if (usuario) {
+      const o = await prisma.usuario.findUnique({ where: { usuario }, select: { id: true } });
+      if (o && o.id !== exceto) throw Errors.conflict('Usuário já cadastrado');
+    }
+  }
+
   /** (Re)emite o convite: o link anterior deixa de valer. */
   async enviarConvite(actorId: string, id: string): Promise<boolean> {
     const u = await prisma.usuario.findUnique({ where: { id } });
     if (!u) throw Errors.notFound('Usuário não encontrado');
+    if (!u.email) throw Errors.conflict('Este usuário não tem e-mail cadastrado');
     if (!u.convitePendente) throw Errors.conflict('Este usuário já ativou a conta');
     if (!u.ativo) throw Errors.conflict('Usuário desativado');
     const actor = await prisma.usuario.findUnique({ where: { id: actorId }, select: { nome: true } });
@@ -93,6 +110,7 @@ export class UsuariosService {
     const u = await prisma.usuario.findUnique({ where: { id } });
     if (!u) throw Errors.notFound('Usuário não encontrado');
     if (!u.ativo) throw Errors.conflict('Usuário desativado');
+    if (!u.email) throw Errors.conflict('Este usuário não tem e-mail cadastrado');
     if (u.convitePendente) throw Errors.conflict('O usuário ainda não ativou a conta: reenvie o convite');
     if (!emailConfigurado()) throw Errors.unavailable('Envio de e-mail não configurado');
     const token = await emitirToken(u.id, 'RESET_SENHA', env.RESET_TOKEN_TTL_MINUTES * 60_000);
@@ -104,15 +122,16 @@ export class UsuariosService {
     return prisma.usuario.update({ where: { id }, data: { falhasLogin: 0, bloqueadoAte: null }, select: publicSelect });
   }
 
-  async update(id: string, data: { nome?: string; email?: string }) {
-    await this.get(id);
-    if (data.email) {
-      const other = await prisma.usuario.findUnique({ where: { email: data.email }, select: { id: true } });
-      if (other && other.id !== id) throw Errors.conflict('E-mail já cadastrado');
-    }
+  async update(id: string, data: { nome?: string; email?: string | null; usuario?: string | null }) {
+    const atual = await prisma.usuario.findUnique({ where: { id }, select: { email: true, usuario: true } });
+    if (!atual) throw Errors.notFound('Usuário não encontrado');
+    const email = data.email === undefined ? atual.email : data.email;
+    const usuario = data.usuario === undefined ? atual.usuario : data.usuario;
+    if (!email && !usuario) throw Errors.validation([{ path: 'usuario', message: 'A conta precisa ter e-mail ou usuário' }]);
+    await this.garantirLivre(data.email, data.usuario, id);
     const u = await prisma.usuario.update({ where: { id }, data, select: publicSelect });
     // links pendentes foram emitidos para o e-mail antigo: deixam de valer
-    if (data.email) await revogarTokens(id);
+    if (data.email !== undefined && data.email !== atual.email) await revogarTokens(id);
     return u;
   }
 

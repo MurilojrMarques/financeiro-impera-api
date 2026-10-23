@@ -28,13 +28,15 @@ export const SENHA = 'Senha-Forte-123';
 
 export async function criarUsuario(perfil: PerfilUsuario, opts: { email?: string; trocaSenha?: boolean; ativo?: boolean } = {}) {
   const email = opts.email ?? `${perfil.toLowerCase()}@teste.local`;
-  return prisma.usuario.create({
+  const u = await prisma.usuario.create({
     data: { email, nome: `Usuário ${perfil}`, perfil, senhaHash: await hashPassword(SENHA), trocaSenhaObrig: opts.trocaSenha ?? false, ativo: opts.ativo ?? true },
   });
+  return { ...u, email }; // nos testes o usuário sempre tem e-mail
 }
 
-export async function login(email: string, senha = SENHA) {
-  const res = await request(app).post('/api/v1/auth/login').send({ email, senha });
+/** `credencial` = e-mail ou nome de usuário. */
+export async function login(credencial: string, senha = SENHA) {
+  const res = await request(app).post('/api/v1/auth/login').send({ login: credencial, senha });
   return res;
 }
 
