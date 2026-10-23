@@ -161,6 +161,40 @@ describe('relatórios financeiros — valores calculados vs esperados', () => {
     for (const v of lista) expect(v.comissaoCentavos).toBe(v.grupo === 'CALL_CENTER' ? Math.round(v.valorVendaCentavos * 0.2) : 0);
   });
 
+  it('comissão do Call Center é 20% do valor LÍQUIDO (sem juros − estornos), nos dois critérios', async () => {
+    const cc = await prisma.venda.findFirst({ where: { grupo: 'CALL_CENTER', pagoEm: { not: null }, perdaCentavos: 0 } });
+    expect(cc).toBeTruthy();
+    const perda = Math.floor(cc!.valorVendaCentavos / 2);
+    await prisma.venda.update({ where: { id: cc!.id }, data: { perdaCentavos: perda, perdaTipo: 'ESTORNO', perdaEm: cc!.pagoEm } });
+    try {
+      for (const modo of ['MOVIMENTACAO', 'APROVADAS']) {
+        const r = (await get(`/call-center/resumo?${Q}&modo=${modo}`, financeiro)).body.data;
+        expect(Math.abs(r.comissaoCentavos - r.receitaCentavos * 0.2), modo).toBeLessThanOrEqual(2); // 20% da receita líquida (±arredondamento)
+      }
+      const venda = (await get(`/vendas?${Q}&limit=50`, analista)).body.data.find((v: { pedido: string }) => v.pedido === cc!.pedido);
+      expect(venda.comissaoCentavos).toBe(Math.round((cc!.valorVendaCentavos - perda) * 0.2));
+    } finally {
+      // devolve o pedido ao estado original: os testes seguintes compartilham os mesmos dados
+      await prisma.venda.update({ where: { id: cc!.id }, data: { perdaCentavos: cc!.perdaCentavos, perdaTipo: cc!.perdaTipo, perdaEm: cc!.perdaEm } });
+    }
+  });
+
+  it('comissão da Recuperação = (faturamento líquido × 0,70) × 5%', async () => {
+    const v = await prisma.venda.findFirst({ where: { grupo: 'FRONT', pagoEm: { not: null }, perdaCentavos: 0 } });
+    expect(v).toBeTruthy();
+    // com um estorno de metade: a comissão é sobre o faturamento líquido
+    await prisma.venda.update({ where: { id: v!.id }, data: { grupo: 'RECUPERACAO', perdaCentavos: Math.floor(v!.valorVendaCentavos / 2), perdaTipo: 'ESTORNO', perdaEm: v!.pagoEm } });
+    try {
+      const r = (await get(`/recuperacao/resumo?${Q}`, financeiro)).body.data;
+      expect(r.receitaCentavos).toBeGreaterThan(0);
+      expect(Math.abs(r.comissaoCentavos - r.receitaCentavos * 0.7 * 0.05)).toBeLessThanOrEqual(2);
+      const item = (await get(`/vendas?${Q}&limit=50`, analista)).body.data.find((x: { pedido: string }) => x.pedido === v!.pedido);
+      expect(item.comissaoCentavos).toBe(Math.round((v!.valorVendaCentavos - Math.floor(v!.valorVendaCentavos / 2)) * 0.035));
+    } finally {
+      await prisma.venda.update({ where: { id: v!.id }, data: { grupo: v!.grupo, perdaCentavos: v!.perdaCentavos, perdaTipo: v!.perdaTipo, perdaEm: v!.perdaEm } }); // os testes seguintes compartilham os dados
+    }
+  });
+
   it('afiliados: identificados pelo nome (equivalências unidas, parecidos separados), com faturamento, comissão e reembolsos', async () => {
     const r = await get(`/afiliados?${Q}`);
     const items = r.body.data as { id: string; nome: string; pedidos: number; faturamentoCentavos: number; comissaoCentavos: number; reembolsosCentavos: number; ticketMedioCentavos: number }[];

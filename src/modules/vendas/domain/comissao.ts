@@ -48,7 +48,13 @@ export function comissaoPorRegra(valorVendaCentavos: number, pagoEm: Date | null
   return null;
 }
 
-/** Comissão vigente (provisória): só o Call Center tem fórmula — 20% do valor vendido. Demais grupos: 0 ("em implementação"). */
-export function comissaoDaVenda(grupo: string | null | undefined, valorVendaCentavos: number): number {
-  return grupo === 'CALL_CENTER' ? Math.round(valorVendaCentavos * 0.2) : 0;
+/**
+ * Comissão vigente (provisória), sobre o valor líquido (valor sem juros − estornos/chargebacks): Call Center = 20%; Recuperação =
+ * (faturamento líquido × 0,70) × 5% = 3,5%. Front = MC BR do RedTrack (à parte). Demais grupos: 0 ("em implementação").
+ */
+export function comissaoDaVenda(grupo: string | null | undefined, valorVendaCentavos: number, perdaCentavos = 0): number {
+  const liquido = valorVendaCentavos - perdaCentavos;
+  if (grupo === 'CALL_CENTER') return Math.round(liquido * 0.2);
+  if (grupo === 'RECUPERACAO') return Math.round(liquido * 0.035);
+  return 0;
 }

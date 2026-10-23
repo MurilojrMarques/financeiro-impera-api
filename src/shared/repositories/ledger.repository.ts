@@ -101,11 +101,21 @@ const COLUNAS = Prisma.raw(`
 const FROM = Prisma.raw(`FROM vendas v LEFT JOIN lojas l ON l.id = v."lojaId" LEFT JOIN afiliados a ON a.id = v."afiliadoId"`);
 
 /**
- * Comissão (regra provisória): só o Call Center tem fórmula definida = 20% de tudo que vende (valor da venda). Para Front, Backend,
+ * Comissão (regra provisória), sobre o valor LÍQUIDO (sem juros − estornos e chargebacks): Call Center = 20%; Recuperação =
+ * (faturamento líquido × 0,70) × 5%. O Front vem do RedTrack (MC BR, fora do ledger). Para Backend,
  * Recuperação e Afiliado a fórmula ainda NÃO foi definida: ficam em 0 aqui e as telas mostram "Em implementação".
  * A coluna `comissaoCentavos` da planilha (valor a receber da Pagah) NÃO é comissão e não é usada.
  */
-const COMISSAO_BASE = `CASE WHEN v."grupo" = 'CALL_CENTER' THEN ROUND(v."valorVendaCentavos" * 0.2)::bigint ELSE 0 END`;
+/** Critério APROVADAS: 20% de (valor − perda atual) em cada pedido. Critério MOVIMENTAÇÃO: 20% do pagamento no dia + (−20% da perda) no dia da perda. */
+/**
+ * Sobre o valor LÍQUIDO (valor sem juros − estornos/chargebacks): Call Center 20%; Recuperação (faturamento × 0,70) × 5% = 3,5%.
+ * Critério APROVADAS: por pedido, taxa × (valor − perda atual). MOVIMENTAÇÃO: taxa × pagamento no dia + (−taxa × perda) no dia da perda.
+ */
+const TAXA_COMISSAO = `CASE WHEN v."grupo" = 'CALL_CENTER' THEN 0.2 WHEN v."grupo" = 'RECUPERACAO' THEN 0.035 ELSE 0 END`;
+// sem arredondar por pedido (o ,5 sempre arredondaria para cima e o total ficaria acima do correto): arredonda uma vez só, no total
+const COMISSAO_BASE = `(v."valorVendaCentavos" - v."perdaCentavos") * ${TAXA_COMISSAO}`;
+const COMISSAO_BRUTA = `v."valorVendaCentavos" * ${TAXA_COMISSAO}`;
+const COMISSAO_PERDA = `-v."perdaCentavos" * ${TAXA_COMISSAO}`;
 const COMISSAO_REAL_X1 = `0`;
 const ESTIMADA = `0`;
 const SEM_COM = `0`;
@@ -136,7 +146,7 @@ function linhaPagamento(modo: FiltroResolvido['modo']): Prisma.Sql {
     1 AS pedidos,
     v."valorVendaCentavos" AS bruto,
     v."valorVendaCentavos" AS receita,
-    ${COMISSAO_BASE} AS comissao,
+    ${COMISSAO_BRUTA} AS comissao,
     COALESCE(v.\"comissaoAfiliadoCentavos\", 0) AS comissao_afil,
     CASE WHEN v.\"comissaoAfiliadoFonte\" = 'REGRA_AFILIADO' THEN COALESCE(v.\"comissaoAfiliadoCentavos\", 0) ELSE 0 END AS comissao_afil_est,
     ${ESTIMADA} AS comissao_estimada,
@@ -149,7 +159,7 @@ function linhaPagamento(modo: FiltroResolvido['modo']): Prisma.Sql {
 const LINHA_PERDA = Prisma.raw(`
   v."perdaEm" AS ref,
   0 AS pedidos, 0 AS bruto, -v."perdaCentavos" AS receita,
-  0 AS comissao, 0 AS comissao_afil, 0 AS comissao_afil_est, 0 AS comissao_estimada, 0 AS x1_real, 0 AS sem_comissao, 0 AS taxa_cc,
+  ${COMISSAO_PERDA} AS comissao, 0 AS comissao_afil, 0 AS comissao_afil_est, 0 AS comissao_estimada, 0 AS x1_real, 0 AS sem_comissao, 0 AS taxa_cc,
   CASE WHEN v."perdaTipo" = 'ESTORNO' THEN v."perdaCentavos" ELSE 0 END AS estorno_cent,
   CASE WHEN v."perdaTipo" = 'ESTORNO' THEN 1 ELSE 0 END AS estorno_qtd,
   CASE WHEN v."perdaTipo" = 'CHARGEBACK' THEN v."perdaCentavos" ELSE 0 END AS charge_cent,
@@ -175,7 +185,7 @@ const SOMAS = Prisma.raw(`
   COALESCE(SUM(m.pedidos),0)::bigint AS pedidos,
   COALESCE(SUM(m.bruto),0)::bigint AS bruto,
   COALESCE(SUM(m.receita),0)::bigint AS receita,
-  COALESCE(SUM(m.comissao),0)::bigint AS comissao,
+  ROUND(COALESCE(SUM(m.comissao),0))::bigint AS comissao,
   COALESCE(SUM(m.comissao_afil),0)::bigint AS comissao_afil,
   COALESCE(SUM(m.comissao_afil_est),0)::bigint AS comissao_afil_est,
   COALESCE(SUM(m.comissao_estimada),0)::bigint AS comissao_estimada,

@@ -68,7 +68,7 @@ export async function conciliacaoDaVenda(pedido: string, verX1: boolean) {
     pedido: v.pedido,
     fonteDosAtributos: v.fonteVerdade,
     valores: { vendaCentavos: v.valorVendaCentavos, totalCentavos: v.valorTotalCentavos, jurosCentavos: v.jurosCentavos, base: 'valor_sem_juros' },
-    comissao: { fonte: v.comissaoFonte, x1: v.x1, centavos: comissaoDaVenda(v.grupo, v.valorVendaCentavos), regra: 'Call Center = 20% do valor vendido; demais grupos em implementação' },
+    comissao: { fonte: v.comissaoFonte, x1: v.x1, centavos: comissaoDaVenda(v.grupo, v.valorVendaCentavos, v.perdaCentavos), regra: 'Call Center = 20% do valor líquido (sem juros − estornos); Recuperação = (faturamento líquido × 0,70) × 5%; Front = MC BR do RedTrack; demais grupos em implementação' },
     classificacao: { grupo: v.grupo, motivo: v.classificacaoMotivo, regraId: v.classificacaoRegraId },
     perda: { centavos: v.perdaCentavos, tipo: v.perdaTipo, em: v.perdaEm, status: v.status },
     eventos: v.eventos,

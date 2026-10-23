@@ -113,7 +113,8 @@ describe('otimização e segurança de rede', () => {
       const r = await request(app).get(api(`/dashboard/trafego?${Q}`)).set('Authorization', analista);
       expect(r.status).toBe(200);
       expect(r.body.data).toMatchObject({ investimentoCentavos: null, roasTotalCentesimos: null, comissaoFrontCentavos: null, comissaoTotalCentavos: null, fonteInvestimento: 'NAO_CONFIGURADO' });
-      expect(typeof r.body.data.comissaoCallCenterCentavos).toBe('number'); // o Call Center (20%) não depende do RedTrack
+      expect(typeof r.body.data.comissaoCallCenterCentavos).toBe('number');
+      expect(typeof r.body.data.comissaoRecuperacaoCentavos).toBe('number'); // o Call Center (20%) não depende do RedTrack
       expect(r.body.data.receitaTotalCentavos).toBeGreaterThan(0);
     });
   });

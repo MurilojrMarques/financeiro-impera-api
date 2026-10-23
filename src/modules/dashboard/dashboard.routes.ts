@@ -38,18 +38,20 @@ dashboardRouter.get('/distribuicao-receitas', q, relatorio((f) => distribuicaoRe
 dashboardRouter.get('/receitas-por-grupo', q, relatorio((f) => receitasPorGrupo(f)));
 dashboardRouter.get('/receitas-por-loja', q, dimensaoHandler('loja'));
 /**
- * Investimento em tráfego (RedTrack), ROAS TOTAL da operação (receita total de todos os grupos ÷ investimento) e COMISSÃO total (Front + Call Center).
+ * Investimento em tráfego (RedTrack), ROAS TOTAL da operação (receita total de todos os grupos ÷ investimento) e COMISSÃO total (Front + Call Center + Recuperação).
  * Só o período vale aqui: os outros filtros (loja, grupo...) não se aplicam ao investimento, então também não entram na receita.
  */
 dashboardRouter.get('/trafego', authorize(Roles.ANALISE), q, relatorio(async (f, req) => {
   const base = resolverFiltro(filtrosBase.parse({ de: req.valid.query.de, ate: req.valid.query.ate, modo: req.valid.query.modo }));
-  const [inv, m] = await Promise.all([investimentoNoPeriodo(f.de, f.ate), totais(base)]);
-  // Comissão: Front = MC BR (RedTrack); Call Center = 20% do vendido (já no ledger). Backend Outros, Recuperação e Afiliado ainda não têm comissão.
+  const doGrupo = (grupo: 'CALL_CENTER' | 'RECUPERACAO') => totais(resolverFiltro(filtrosBase.parse({ de: req.valid.query.de, ate: req.valid.query.ate, modo: req.valid.query.modo, grupo })));
+  const [inv, m, cc, rec] = await Promise.all([investimentoNoPeriodo(f.de, f.ate), totais(base), doGrupo('CALL_CENTER'), doGrupo('RECUPERACAO')]);
+  // Comissão: Front = MC BR (RedTrack); Call Center = 20% e Recuperação = (valor × 0,70) × 5%, ambos do líquido (já no ledger). Backend Outros e Afiliado ainda não têm comissão.
   const comissaoFront = inv.baseMcBrCentavos != null && inv.centavos !== null ? mcBrCentavos(inv.baseMcBrCentavos, inv.centavos) : null;
   return {
     investimentoCentavos: inv.centavos,
     comissaoFrontCentavos: comissaoFront,
-    comissaoCallCenterCentavos: m.comissaoCentavos,
+    comissaoCallCenterCentavos: cc.comissaoCentavos,
+    comissaoRecuperacaoCentavos: rec.comissaoCentavos,
     comissaoTotalCentavos: comissaoFront === null ? null : comissaoFront + m.comissaoCentavos,
     receitaTotalCentavos: m.receitaCentavos,
     roasTotalCentesimos: inv.centavos ? Math.round((m.receitaCentavos * 100) / inv.centavos) : null,

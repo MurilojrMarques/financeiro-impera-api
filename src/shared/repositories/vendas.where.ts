@@ -71,7 +71,7 @@ type VendaLista = Prisma.VendaGetPayload<{ select: typeof vendaListSelect }>;
 export function serializarVenda(v: VendaLista, mostrarX1Real: boolean) {
   const { loja, afiliado, comissaoCentavos: _colunaPlanilha, ...resto } = v;
   void mostrarX1Real;
-  const comissaoPadrao = comissaoDaVenda(v.grupo, v.valorVendaCentavos);
+  const comissaoPadrao = comissaoDaVenda(v.grupo, v.valorVendaCentavos, v.perdaCentavos);
   return {
     ...resto,
     loja: loja?.nome ?? null,
