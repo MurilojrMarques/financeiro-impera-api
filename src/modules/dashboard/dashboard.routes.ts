@@ -13,6 +13,7 @@ import { comparativoHandler, construirAlertas, dimensaoHandler, formatar, metaFi
 import { filtrosBase, filtrosSchema, refinarPeriodo, resolverFiltro, type FiltrosQuery } from '../../shared/validators/filtros';
 import { totais } from '../../shared/repositories/ledger.repository';
 import { investimentoNoPeriodo } from '../../integrations/redtrack/redtrack.client';
+import { mcBrCentavos } from '../trafego/trafego.domain';
 import { distribuicaoReceitas, indicadores, kpis, receitasPorGrupo } from './dashboard.service';
 
 export const dashboardRouter = Router();
@@ -37,14 +38,19 @@ dashboardRouter.get('/distribuicao-receitas', q, relatorio((f) => distribuicaoRe
 dashboardRouter.get('/receitas-por-grupo', q, relatorio((f) => receitasPorGrupo(f)));
 dashboardRouter.get('/receitas-por-loja', q, dimensaoHandler('loja'));
 /**
- * Investimento em tráfego (RedTrack) e ROAS TOTAL da operação = receita total de todos os grupos ÷ investimento.
+ * Investimento em tráfego (RedTrack), ROAS TOTAL da operação (receita total de todos os grupos ÷ investimento) e COMISSÃO total (Front + Call Center).
  * Só o período vale aqui: os outros filtros (loja, grupo...) não se aplicam ao investimento, então também não entram na receita.
  */
 dashboardRouter.get('/trafego', authorize(Roles.ANALISE), q, relatorio(async (f, req) => {
   const base = resolverFiltro(filtrosBase.parse({ de: req.valid.query.de, ate: req.valid.query.ate, modo: req.valid.query.modo }));
   const [inv, m] = await Promise.all([investimentoNoPeriodo(f.de, f.ate), totais(base)]);
+  // Comissão: Front = MC BR (RedTrack); Call Center = 20% do vendido (já no ledger). Backend Outros, Recuperação e Afiliado ainda não têm comissão.
+  const comissaoFront = inv.baseMcBrCentavos != null && inv.centavos !== null ? mcBrCentavos(inv.baseMcBrCentavos, inv.centavos) : null;
   return {
     investimentoCentavos: inv.centavos,
+    comissaoFrontCentavos: comissaoFront,
+    comissaoCallCenterCentavos: m.comissaoCentavos,
+    comissaoTotalCentavos: comissaoFront === null ? null : comissaoFront + m.comissaoCentavos,
     receitaTotalCentavos: m.receitaCentavos,
     roasTotalCentesimos: inv.centavos ? Math.round((m.receitaCentavos * 100) / inv.centavos) : null,
     fonteInvestimento: inv.fonte,
