@@ -44,10 +44,47 @@ describe('RH: permissões, salários, folha e documentos', () => {
   });
 
   describe('quem entra', () => {
-    it('sem papel de RH não entra, nem ADMIN nem FINANCEIRO do financeiro; sem login => 401', async () => {
-      expect((await get('/colaboradores', tokenAdmin)).status).toBe(403);
+    it('FINANCEIRO sem papel de RH não entra; sem login => 401', async () => {
       expect((await get('/colaboradores', tokenSemRh)).status).toBe(403);
       expect((await request(app).get(api('/colaboradores'))).status).toBe(401);
+    });
+
+    it('ADMIN do sistema vê TUDO do RH (todos, salários, painel, folha, monitoramento), mas só escreve a própria nota fiscal', async () => {
+      const r = await get('/colaboradores?limit=50', tokenAdmin);
+      expect(r.status).toBe(200);
+      expect(r.body.meta.total).toBe(6);
+      expect(r.body.data.every((c: { salarioCentavos?: number }) => typeof c.salarioCentavos === 'number')).toBe(true);
+      expect((await get('/colaboradores/painel', tokenAdmin)).status).toBe(200);
+      expect((await get('/monitoramento', tokenAdmin)).status).toBe(200);
+      expect((await get('/documentos', tokenAdmin)).status).toBe(200);
+      // não altera folha, não revisa documentos, não envia comprovante
+      expect((await request(app).post(api('/folha/2026-10/gerar')).set('Authorization', tokenAdmin)).status).toBe(403);
+      const doc = await prisma.rhDocumento.create({ data: { colaboradorId: p.a!.colabId, tipo: 'NOTA_FISCAL', arquivoNome: 'x.pdf', arquivoCaminho: 'x/x.pdf', mime: 'application/pdf', tamanhoBytes: 1, sha256: 'x' } });
+      expect((await request(app).patch(api(`/documentos/${doc.id}/status`)).set('Authorization', tokenAdmin).send({ status: 'APROVADO' })).status).toBe(403);
+      const enviar = (campos: Record<string, string>) => {
+        let rq = request(app).post(api('/documentos')).set('Authorization', tokenAdmin);
+        for (const [k, v] of Object.entries(campos)) rq = rq.field(k, v);
+        return rq.attach('arquivo', PDF, 'nf.pdf');
+      };
+      expect((await enviar({ tipo: 'COMPROVANTE_PAGAMENTO', colaboradorId: p.a!.colabId })).status).toBe(403);
+      expect((await enviar({ tipo: 'NOTA_FISCAL', colaboradorId: p.a!.colabId })).status).toBe(403); // a nota de outra pessoa
+      expect((await enviar({ tipo: 'NOTA_FISCAL' })).status).toBe(403); // este admin não tem cadastro de colaborador: não tem "minha nota"
+      await prisma.rhDocumento.delete({ where: { id: doc.id } }); // os testes seguintes compartilham os dados
+    });
+
+    it('ADMIN que também é colaborador: envia a PRÓPRIA nota fiscal, mesmo com papel COLABORADOR no cadastro', async () => {
+      const c = await prisma.rhColaborador.create({ data: { nome: 'Admin Dev', departamento: 'Dev/Infra', salarioCentavos: 600000, email: 'admindev@teste.local' } });
+      await prisma.usuario.create({ data: { email: 'admindev@teste.local', nome: 'Admin Dev', perfil: 'ADMIN', rhPapel: 'COLABORADOR', colaboradorId: c.id, senhaHash: await hashPassword(SENHA) } });
+      const t = `Bearer ${(await login('admindev@teste.local')).body.data.accessToken}`;
+      expect((await get('/colaboradores?limit=50', t)).body.meta.total).toBeGreaterThanOrEqual(6); // vê todos, não só ele
+      const r = await request(app).post(api('/documentos')).set('Authorization', t).field('tipo', 'NOTA_FISCAL').field('competencia', '2026-10').attach('arquivo', PDF, 'minha-nf.pdf');
+      expect(r.status).toBe(201);
+      expect(r.body.data.colaboradorId).toBe(c.id);
+      const me = await request(app).get('/api/v1/auth/me').set('Authorization', t);
+      expect(me.body.data.rhPapel).toBe('CEO'); // o papel efetivo (somente leitura) chega ao frontend
+      await prisma.rhDocumento.deleteMany({ where: { colaboradorId: c.id } });
+      await prisma.usuario.deleteMany({ where: { colaboradorId: c.id } });
+      await prisma.rhColaborador.delete({ where: { id: c.id } });
     });
 
     it('colaborador comum (SEM_FINANCEIRO) não vê nenhuma tela do financeiro', async () => {

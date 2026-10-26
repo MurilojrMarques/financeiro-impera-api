@@ -5,6 +5,8 @@ import { Errors } from '../../shared/errors/app-error';
 import { audit } from '../../shared/services/audit.service';
 import { enviarEmail } from '../../shared/services/mail.service';
 import { emailContaBloqueada, emailRedefinicao, emailSenhaAlterada } from '../../shared/services/mail.templates';
+import type { RhPapel } from '../../generated/prisma/client';
+import { papelRhEfetivo } from '../rh/rh.access';
 import { hashPassword, passwordPolicyIssue, verifyPassword } from './password.service';
 import { consumirToken, contarEmitidosNaUltimaHora, emitirToken, localizarTokenValido, revogarTokens } from './token-usuario.service';
 import { generateRefreshToken, hashRefreshToken, signAccessToken } from './token.service';
@@ -37,7 +39,7 @@ const refreshExpiry = () => new Date(Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 8
 const dorme = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function toPublic(u: { id: string; nome: string; email: string | null; usuario: string | null; perfil: string; rhPapel: string | null; colaboradorId: string | null; trocaSenhaObrig: boolean }): PublicUser {
-  return { id: u.id, nome: u.nome, email: u.email, usuario: u.usuario, perfil: u.perfil, rhPapel: u.rhPapel, colaboradorId: u.colaboradorId, trocaSenhaObrigatoria: u.trocaSenhaObrig };
+  return { id: u.id, nome: u.nome, email: u.email, usuario: u.usuario, perfil: u.perfil, rhPapel: papelRhEfetivo(u.perfil, u.rhPapel as RhPapel | null), colaboradorId: u.colaboradorId, trocaSenhaObrigatoria: u.trocaSenhaObrig };
 }
 
 /** Resposta de erro idêntica para qualquer problema de link: nunca diz se expirou, já foi usado ou nunca existiu. */

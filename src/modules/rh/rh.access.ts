@@ -10,6 +10,16 @@ import { Errors } from '../../shared/errors/app-error';
  *  - COLABORADOR: vê só o próprio cadastro (com o próprio salário) e envia a própria NF.
  * O papel vem SEMPRE do banco (req.user), nunca do cliente. ADMIN/FINANCEIRO do sistema financeiro NÃO enxergam RH sem um papel de RH.
  */
+/**
+ * Papel de RH efetivo. O ADMIN do sistema enxerga TUDO do RH (como o CEO: todos os colaboradores, salários, folha, documentos e
+ * monitoramento) mas NÃO escreve nada além da própria nota fiscal: só o papel RH altera folha e revisa documentos. Se o ADMIN já for RH
+ * mantém RH; qualquer outro papel (ou nenhum) vira CEO (somente leitura). Sempre calculado a partir do banco, nunca do cliente.
+ */
+export function papelRhEfetivo(perfil: string | null | undefined, papel: RhPapel | null | undefined): RhPapel | null {
+  if (perfil === 'ADMIN') return papel === 'RH' ? 'RH' : 'CEO';
+  return papel ?? null;
+}
+
 export const exigeRh = (permitidos?: readonly RhPapel[]) => (req: Request, _res: Response, next: NextFunction): void => {
   const papel = req.user?.rhPapel;
   if (!papel) return next(Errors.forbidden());

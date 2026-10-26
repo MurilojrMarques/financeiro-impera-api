@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { prisma } from '../config/database';
 import { Errors } from '../shared/errors/app-error';
 import { verifyAccessToken } from '../modules/auth/token.service';
+import { papelRhEfetivo } from '../modules/rh/rh.access';
 
 /**
  * Exige Access Token válido (assinatura, expiração, emissor, audiência), sessão ativa e usuário ativo.
@@ -25,7 +26,7 @@ export function authenticate(opts: { allowPasswordChangePending?: boolean } = {}
       if (u.trocaSenhaObrig && !opts.allowPasswordChangePending) throw Errors.passwordChangeRequired();
 
       // perfil vem SEMPRE do banco, nunca do token/cliente
-      req.user = { id: u.id, email: u.email, perfil: u.perfil, rhPapel: u.rhPapel, colaboradorId: u.colaboradorId, sessaoId: claims.sid };
+      req.user = { id: u.id, email: u.email, perfil: u.perfil, rhPapel: papelRhEfetivo(u.perfil, u.rhPapel), colaboradorId: u.colaboradorId, sessaoId: claims.sid };
       next();
     } catch (e) {
       next(e);
