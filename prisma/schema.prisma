@@ -780,20 +780,24 @@ model RhFolhaCompetencia {
 }
 
 model RhFolhaItem {
-  id               String            @id @default(uuid()) @db.Uuid
-  competenciaId    String            @db.Uuid
-  colaboradorId    String            @db.Uuid
+  id                    String            @id @default(uuid()) @db.Uuid
+  competenciaId         String            @db.Uuid
+  colaboradorId         String            @db.Uuid
   /// salário vigente no mês (pelo histórico de reajustes)
-  salarioCentavos  Int
-  comissaoCentavos Int               @default(0)
-  bonusCentavos    Int               @default(0)
-  descontoCentavos Int               @default(0)
+  /// salário mensal cheio (referência) e dias trabalhados no mês (mês comercial de 30 dias; entrada/saída no meio do mês = proporcional)
+  salarioMensalCentavos Int               @default(0)
+  diasTrabalhados       Int               @default(30)
+  /// valor do salário a pagar no mês = salarioMensal ÷ 30 × diasTrabalhados
+  salarioCentavos       Int
+  comissaoCentavos      Int               @default(0)
+  bonusCentavos         Int               @default(0)
+  descontoCentavos      Int               @default(0)
   /// salário + comissão + bônus − desconto
-  totalCentavos    Int
-  status           RhStatusPagamento @default(PENDENTE)
-  pagoEm           DateTime?         @db.Date
-  obs              String?
-  atualizadoEm     DateTime          @updatedAt @db.Timestamptz
+  totalCentavos         Int
+  status                RhStatusPagamento @default(PENDENTE)
+  pagoEm                DateTime?         @db.Date
+  obs                   String?
+  atualizadoEm          DateTime          @updatedAt @db.Timestamptz
 
   competencia RhFolhaCompetencia @relation(fields: [competenciaId], references: [id], onDelete: Cascade)
   colaborador RhColaborador      @relation(fields: [colaboradorId], references: [id], onDelete: Restrict)

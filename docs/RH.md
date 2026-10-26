@@ -38,8 +38,18 @@ Toda consulta a salário gera auditoria (`rh.salario_consultado`).
 - `POST /documentos` (multipart, campo `arquivo`), `GET /documentos`, `GET /documentos/:id/arquivo`, `PATCH /documentos/:id/status`
 
 ## Folha
-O valor pago é o **salário cadastrado** (sem o multiplicador de PJ 1,10 do sistema antigo, decisão de 26/10/2026) + comissão + bônus − desconto, estes três lançados manualmente. O salário do mês vem do histórico de reajustes (setembro mostra o salário de setembro, mesmo que a pessoa tenha sido reajustada depois). Não há proporcional (pro-rata) para quem entra ou sai no meio do mês. Folha fechada só aceita registro de pagamento.
-A comissão automática por colaborador (a partir do sistema financeiro) ainda **não** existe.
+O valor pago é o **salário cadastrado** (sem o multiplicador de PJ 1,10 do sistema antigo, decisão de 26/10/2026) + comissão + bônus − desconto, estes três lançados manualmente.
+
+**Proporcional (mês comercial de 30 dias):** `salário ÷ 30 × dias trabalhados`, arredondado ao centavo.
+- Mês inteiro trabalhado = 30 dias = salário cheio (inclusive em fevereiro e em meses de 31 dias).
+- Entrou no meio do mês: dias corridos da entrada até o último dia do mês, inclusive (máximo 30). Ex.: entrou em 10/11 → 21 dias.
+- Saiu no meio do mês: do dia 1 até o dia da saída, inclusive. Ex.: saída em 15/11 → 15 dias.
+- Entrou e saiu no mesmo mês: os dias entre as duas datas. Sem vínculo no mês: 0.
+- Cada item guarda o salário mensal cheio, os dias e o valor proporcional.
+- `POST /folha/:mes/gerar?recalcular=true` (folha aberta) refaz salário e dias dos itens existentes, mantendo comissão, bônus, desconto e pagamento.
+- O salário do mês é o vigente no último dia do mês (pelo histórico de reajustes). Reajuste no meio do mês **não** é dividido em duas partes.
+
+Folha fechada só aceita registro de pagamento. A comissão automática por colaborador (a partir do sistema financeiro) ainda **não** existe.
 
 ## Documentos
 PDF, PNG, JPG ou WEBP (conferido pelo conteúdo do arquivo), até `RH_DOC_MAX_BYTES` (10 MB). Guardados em `RH_STORAGE_DIR/documentos/<colaborador>/`, nunca no Git. Download sempre como anexo, com `nosniff`.

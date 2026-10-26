@@ -201,6 +201,39 @@ describe('RH: permissões, salários, folha e documentos', () => {
     });
   });
 
+  describe('folha proporcional', () => {
+    it('quem entrou ou saiu no meio do mês recebe salário ÷ 30 × dias trabalhados; quem ficou o mês todo, o salário cheio', async () => {
+      await prisma.rhColaborador.create({ data: { nome: 'Entrou em Novembro', departamento: 'CS', salarioCentavos: 300000, inicio: new Date('2026-11-10T00:00:00Z') } });
+      await prisma.rhColaborador.create({ data: { nome: 'Saiu em Novembro', departamento: 'CS', salarioCentavos: 600000, inicio: new Date('2026-01-01T00:00:00Z'), demissao: new Date('2026-11-15T00:00:00Z') } });
+      const g = await request(app).post(api('/folha/2026-11/gerar')).set('Authorization', p.rh!.token);
+      expect(g.status).toBe(201);
+      const itens = (await get('/folha/2026-11', p.rh!.token)).body.data.itens as { colaborador: { nome: string }; salarioMensalCentavos: number; diasTrabalhados: number; salarioCentavos: number; totalCentavos: number }[];
+      const por = (nome: string) => itens.find((i) => i.colaborador.nome === nome)!;
+      expect(por('Entrou em Novembro')).toMatchObject({ diasTrabalhados: 21, salarioMensalCentavos: 300000, salarioCentavos: 210000, totalCentavos: 210000 }); // 10 a 30 de novembro
+      expect(por('Saiu em Novembro')).toMatchObject({ diasTrabalhados: 15, salarioMensalCentavos: 600000, salarioCentavos: 300000 });
+      expect(por('Ana Dev')).toMatchObject({ diasTrabalhados: 30, salarioCentavos: 600000 });
+    });
+
+    it('comissão, bônus e desconto somam ao salário proporcional; recalcular refaz só salário e dias', async () => {
+      const f = await get('/folha/2026-11', p.rh!.token);
+      const item = f.body.data.itens.find((i: { colaborador: { nome: string } }) => i.colaborador.nome === 'Entrou em Novembro');
+      const e = await request(app).patch(api(`/folha/2026-11/itens/${item.id}`)).set('Authorization', p.rh!.token).send({ bonusCentavos: 10000 });
+      expect(e.body.data.totalCentavos).toBe(220000);
+      // corrige a data de entrada e recalcula: a folha aberta acompanha, e o bônus fica
+      await prisma.rhColaborador.updateMany({ where: { nome: 'Entrou em Novembro' }, data: { inicio: new Date('2026-11-20T00:00:00Z') } });
+      const r = await request(app).post(api('/folha/2026-11/gerar?recalcular=true')).set('Authorization', p.rh!.token);
+      expect(r.body.data.recalculados).toBe(1);
+      const novo = (await get('/folha/2026-11', p.rh!.token)).body.data.itens.find((i: { colaborador: { nome: string } }) => i.colaborador.nome === 'Entrou em Novembro');
+      expect(novo).toMatchObject({ diasTrabalhados: 11, salarioCentavos: 110000, bonusCentavos: 10000, totalCentavos: 120000 });
+    });
+
+    it('fevereiro (28 dias): quem ficou o mês todo recebe o salário cheio', async () => {
+      await request(app).post(api('/folha/2026-02/gerar')).set('Authorization', p.rh!.token);
+      const ana = (await get('/folha/2026-02', p.rh!.token)).body.data.itens.find((i: { colaborador: { nome: string } }) => i.colaborador.nome === 'Ana Dev');
+      expect(ana).toMatchObject({ diasTrabalhados: 30, salarioCentavos: 600000 });
+    });
+  });
+
   describe('documentos (NF e comprovantes)', () => {
     const enviar = (t: string, campos: Record<string, string>, arquivo: Buffer = PDF, nome = 'nf.pdf') => {
       let r = request(app).post(api('/documentos')).set('Authorization', t);

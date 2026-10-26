@@ -6,11 +6,12 @@ import { audit } from '../../shared/services/audit.service';
 import { created, ok } from '../../shared/utils/response';
 import { exigeRh, PAPEIS_ESCREVEM, PAPEIS_VEEM_SALARIO } from './rh.access';
 import { competenciaParams, folhaItemBody, itemParams } from './rh.schemas';
-import { colaboradoresDoMes, limitesDoMes, salarioNaData, totalDoItem } from './rh.service';
+import { colaboradoresDoMes, diasTrabalhadosNoMes, limitesDoMes, salarioNaData, salarioProporcional, totalDoItem } from './rh.service';
 
 /**
  * Folha de pagamento (PJ). Só RH e CEO enxergam; só o RH altera.
- * O valor pago é o SALÁRIO cadastrado (sem multiplicador de PJ, decisão de 26/10/2026) + comissão + bônus − desconto lançados à mão.
+ * O valor pago é o SALÁRIO cadastrado (sem multiplicador de PJ, decisão de 26/10/2026), proporcional a 30 dias para quem entrou ou saiu no mês
+ * (salário ÷ 30 × dias trabalhados), + comissão + bônus − desconto lançados à mão.
  * Comissão automática por colaborador ainda não existe: o campo é lançado manualmente.
  */
 export const folhaRouter = Router();
@@ -18,11 +19,12 @@ folhaRouter.use(exigeRh(PAPEIS_VEEM_SALARIO));
 
 const dia = (s: string): Date => new Date(`${s}T00:00:00.000Z`);
 
-function resumoDosItens(itens: { salarioCentavos: number; comissaoCentavos: number; bonusCentavos: number; descontoCentavos: number; totalCentavos: number; status: string }[]) {
+function resumoDosItens(itens: { salarioCentavos: number; salarioMensalCentavos: number; comissaoCentavos: number; bonusCentavos: number; descontoCentavos: number; totalCentavos: number; status: string }[]) {
   const soma = (f: (i: (typeof itens)[number]) => number) => itens.reduce((s, i) => s + f(i), 0);
   return {
     pessoas: itens.length,
     salariosCentavos: soma((i) => i.salarioCentavos),
+    salariosMensaisCentavos: soma((i) => i.salarioMensalCentavos),
     comissoesCentavos: soma((i) => i.comissaoCentavos),
     bonusCentavos: soma((i) => i.bonusCentavos),
     descontosCentavos: soma((i) => i.descontoCentavos),
@@ -49,26 +51,48 @@ folhaRouter.get('/:competencia', validate({ params: competenciaParams }), async 
   ok(res, { competencia: c.competencia, status: c.status, fechadaEm: c.fechadaEm, resumo: resumoDosItens(c.itens), itens: c.itens });
 });
 
-/** Gera a folha do mês: uma linha por colaborador que estava ativo no mês, com o salário vigente no fim do mês. Pode rodar de novo: só inclui quem faltar. */
+/**
+ * Gera a folha do mês: uma linha por colaborador que estava ativo no mês, com o salário vigente no fim do mês e, para quem entrou ou saiu
+ * no meio dele, proporcional (salário ÷ 30 × dias trabalhados). Pode rodar de novo: só inclui quem faltar.
+ * Com `?recalcular=true` (folha ABERTA) refaz salário e dias dos itens existentes, mantendo comissão, bônus, desconto e pagamento.
+ */
 folhaRouter.post('/:competencia/gerar', exigeRh(PAPEIS_ESCREVEM), validate({ params: competenciaParams }), async (req, res) => {
   const competencia = req.valid.params.competencia as string;
+  const recalcular = req.query.recalcular === 'true';
   const { fim } = limitesDoMes(competencia);
   const existente = await prisma.rhFolhaCompetencia.findUnique({ where: { competencia } });
   if (existente?.status === 'FECHADA') throw Errors.conflict('Folha fechada: não é possível alterar');
   const pessoas = await colaboradoresDoMes(competencia);
   const comp = existente ?? (await prisma.rhFolhaCompetencia.create({ data: { competencia } }));
-  const jaTem = new Set((await prisma.rhFolhaItem.findMany({ where: { competenciaId: comp.id }, select: { colaboradorId: true } })).map((i) => i.colaboradorId));
+  const itensAtuais = await prisma.rhFolhaItem.findMany({ where: { competenciaId: comp.id } });
+  const jaTem = new Map(itensAtuais.map((i) => [i.colaboradorId, i]));
+  const calculo = (p: (typeof pessoas)[number]) => {
+    const mensal = salarioNaData(p.salarioCentavos, p.movimentacoes, fim);
+    const dias = diasTrabalhadosNoMes(competencia, p.inicio, p.demissao);
+    return { salarioMensalCentavos: mensal, diasTrabalhados: dias, salarioCentavos: salarioProporcional(mensal, dias) };
+  };
   const novos = pessoas.filter((p) => !jaTem.has(p.id));
   if (novos.length > 0) {
     await prisma.rhFolhaItem.createMany({
       data: novos.map((p) => {
-        const salario = salarioNaData(p.salarioCentavos, p.movimentacoes, fim);
-        return { competenciaId: comp.id, colaboradorId: p.id, salarioCentavos: salario, totalCentavos: salario };
+        const c = calculo(p);
+        return { competenciaId: comp.id, colaboradorId: p.id, ...c, totalCentavos: c.salarioCentavos };
       }),
     });
   }
-  await audit(req, 'rh.folha_gerada', 'rh_folha', comp.id, { competencia, incluidos: novos.length, total: pessoas.length });
-  created(res, { competencia, status: comp.status, incluidos: novos.length, pessoas: pessoas.length });
+  let recalculados = 0;
+  if (recalcular) {
+    for (const p of pessoas) {
+      const atual = jaTem.get(p.id);
+      if (!atual) continue;
+      const c = calculo(p);
+      if (c.salarioCentavos === atual.salarioCentavos && c.diasTrabalhados === atual.diasTrabalhados && c.salarioMensalCentavos === atual.salarioMensalCentavos) continue;
+      recalculados++;
+      await prisma.rhFolhaItem.update({ where: { id: atual.id }, data: { ...c, totalCentavos: totalDoItem({ ...c, comissaoCentavos: atual.comissaoCentavos, bonusCentavos: atual.bonusCentavos, descontoCentavos: atual.descontoCentavos }) } });
+    }
+  }
+  await audit(req, 'rh.folha_gerada', 'rh_folha', comp.id, { competencia, incluidos: novos.length, recalculados, total: pessoas.length });
+  created(res, { competencia, status: comp.status, incluidos: novos.length, recalculados, pessoas: pessoas.length });
 });
 
 folhaRouter.patch('/:competencia/itens/:itemId', exigeRh(PAPEIS_ESCREVEM), validate({ params: itemParams, body: folhaItemBody }), async (req, res) => {

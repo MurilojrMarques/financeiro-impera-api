@@ -23,6 +23,28 @@ export function salarioNaData(
   return ordenadas[0]!.salarioAnteriorCentavos;
 }
 
+/** Mês comercial: o salário é dividido em 30 dias, em qualquer mês. */
+export const DIAS_DO_MES_COMERCIAL = 30;
+
+/**
+ * Dias a pagar no mês, para quem entrou ou saiu no meio dele (mês comercial de 30 dias):
+ *  - trabalhou o mês inteiro => 30 (salário cheio, também em fevereiro);
+ *  - senão, os dias corridos entre a entrada (ou dia 1) e a saída (ou último dia), inclusive, no máximo 30;
+ *  - fora do vínculo no mês => 0.
+ */
+export function diasTrabalhadosNoMes(competencia: string, inicio: Date | null, demissao: Date | null): number {
+  const { inicio: ini, fim } = limitesDoMes(competencia);
+  const de = inicio && inicio.getTime() > ini.getTime() ? inicio : ini;
+  const ate = demissao && demissao.getTime() < fim.getTime() ? demissao : fim;
+  if (ate.getTime() < de.getTime()) return 0;
+  if (de.getTime() === ini.getTime() && ate.getTime() === fim.getTime()) return DIAS_DO_MES_COMERCIAL;
+  const dias = Math.round((ate.getTime() - de.getTime()) / 86_400_000) + 1;
+  return Math.min(dias, DIAS_DO_MES_COMERCIAL);
+}
+
+/** salário ÷ 30 × dias trabalhados, arredondado ao centavo. */
+export const salarioProporcional = (mensalCentavos: number, dias: number): number => Math.round((mensalCentavos * dias) / DIAS_DO_MES_COMERCIAL);
+
 export const totalDoItem = (i: { salarioCentavos: number; comissaoCentavos: number; bonusCentavos: number; descontoCentavos: number }): number =>
   i.salarioCentavos + i.comissaoCentavos + i.bonusCentavos - i.descontoCentavos;
 
@@ -31,7 +53,7 @@ export async function colaboradoresDoMes(competencia: string) {
   const { inicio, fim } = limitesDoMes(competencia);
   return prisma.rhColaborador.findMany({
     where: { AND: [{ OR: [{ inicio: null }, { inicio: { lte: fim } }] }, { OR: [{ demissao: null }, { demissao: { gte: inicio } }] }] },
-    select: { id: true, nome: true, salarioCentavos: true, movimentacoes: { select: { data: true, salarioAnteriorCentavos: true, salarioNovoCentavos: true } } },
+    select: { id: true, nome: true, salarioCentavos: true, inicio: true, demissao: true, movimentacoes: { select: { data: true, salarioAnteriorCentavos: true, salarioNovoCentavos: true } } },
     orderBy: { nome: 'asc' },
   });
 }
