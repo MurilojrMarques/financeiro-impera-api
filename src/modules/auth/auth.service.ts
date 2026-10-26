@@ -27,14 +27,17 @@ export interface PublicUser {
   email: string | null;
   usuario: string | null;
   perfil: string;
+  /** papel no módulo de RH (RH, CEO, GESTOR, COLABORADOR) ou null; colaboradorId liga o login ao cadastro de RH */
+  rhPapel: string | null;
+  colaboradorId: string | null;
   trocaSenhaObrigatoria: boolean;
 }
 
 const refreshExpiry = () => new Date(Date.now() + env.REFRESH_TOKEN_TTL_DAYS * 86_400_000);
 const dorme = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-function toPublic(u: { id: string; nome: string; email: string | null; usuario: string | null; perfil: string; trocaSenhaObrig: boolean }): PublicUser {
-  return { id: u.id, nome: u.nome, email: u.email, usuario: u.usuario, perfil: u.perfil, trocaSenhaObrigatoria: u.trocaSenhaObrig };
+function toPublic(u: { id: string; nome: string; email: string | null; usuario: string | null; perfil: string; rhPapel: string | null; colaboradorId: string | null; trocaSenhaObrig: boolean }): PublicUser {
+  return { id: u.id, nome: u.nome, email: u.email, usuario: u.usuario, perfil: u.perfil, rhPapel: u.rhPapel, colaboradorId: u.colaboradorId, trocaSenhaObrigatoria: u.trocaSenhaObrig };
 }
 
 /** Resposta de erro idêntica para qualquer problema de link: nunca diz se expirou, já foi usado ou nunca existiu. */
