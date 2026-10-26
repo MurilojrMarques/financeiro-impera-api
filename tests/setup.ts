@@ -7,3 +7,4 @@ process.env.LOG_LEVEL = 'silent';
 process.env.AUTO_SYNC_ENABLED = 'false'; // nos testes ninguém sincroniza sozinho
 process.env.RATE_LIMIT_LOGIN_MAX = '20';
 process.env.UPLOAD_DIR = './storage-test/anexos';
+process.env.RH_STORAGE_DIR = './storage-test/rh';

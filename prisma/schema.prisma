@@ -59,6 +59,16 @@ enum PerfilUsuario {
   FINANCEIRO
   ANALISTA
   LEITURA
+  /// sem acesso a nenhuma tela financeira (colaboradores comuns, só RH): fica fora de todos os grupos de rotas do financeiro
+  SEM_FINANCEIRO
+}
+
+/// Papel no módulo de RH (independente do perfil financeiro: uma pessoa pode ser FINANCEIRO e RH ao mesmo tempo).
+enum RhPapel {
+  RH
+  CEO
+  GESTOR
+  COLABORADOR
 }
 
 enum StatusSincronizacao {
@@ -107,25 +117,29 @@ enum OperadorClassificacao {
 // ───────────── Autenticação ─────────────
 
 model Usuario {
-  id               String        @id @default(uuid()) @db.Uuid
+  id               String             @id @default(uuid()) @db.Uuid
   /// ao menos um entre e-mail e usuário é obrigatório (CHECK no banco); o login aceita qualquer um dos dois
-  email            String?       @unique
+  email            String?            @unique
   /// nome de usuário para login (minúsculas, 3–32 caracteres: letras, números, ponto, hífen e sublinhado)
-  usuario          String?       @unique
+  usuario          String?            @unique
   nome             String
   senhaHash        String
   perfil           PerfilUsuario
-  ativo            Boolean       @default(true)
-  trocaSenhaObrig  Boolean       @default(false)
+  ativo            Boolean            @default(true)
+  trocaSenhaObrig  Boolean            @default(false)
+  /// papel no RH (null = sem acesso ao módulo de RH) e o colaborador a que este login pertence
+  rhPapel          RhPapel?
+  colaboradorId    String?            @unique @db.Uuid
+  colaborador      RhColaborador?     @relation(fields: [colaboradorId], references: [id], onDelete: SetNull)
   /// convite enviado e ainda não aceito: a senha gravada é aleatória e inutilizável
-  convitePendente  Boolean       @default(false)
+  convitePendente  Boolean            @default(false)
   /// tentativas de login falhas consecutivas e bloqueio temporário (anti força-bruta)
-  falhasLogin      Int           @default(0)
-  bloqueadoAte     DateTime?     @db.Timestamptz
-  senhaAlteradaEm  DateTime?     @db.Timestamptz
-  ultimoLoginEm    DateTime?     @db.Timestamptz
-  criadoEm         DateTime      @default(now()) @db.Timestamptz
-  atualizadoEm     DateTime      @updatedAt @db.Timestamptz
+  falhasLogin      Int                @default(0)
+  bloqueadoAte     DateTime?          @db.Timestamptz
+  senhaAlteradaEm  DateTime?          @db.Timestamptz
+  ultimoLoginEm    DateTime?          @db.Timestamptz
+  criadoEm         DateTime           @default(now()) @db.Timestamptz
+  atualizadoEm     DateTime           @updatedAt @db.Timestamptz
   sessoes          Sessao[]
   tokens           TokenUsuario[]
   senhasAnteriores SenhaHistorico[]
@@ -142,17 +156,17 @@ enum TipoTokenUsuario {
 
 /// Token de uso único para redefinir a senha ou aceitar um convite. Só o HASH (SHA-256) é armazenado.
 model TokenUsuario {
-  id         String             @id @default(uuid()) @db.Uuid
-  usuarioId  String             @db.Uuid
+  id         String           @id @default(uuid()) @db.Uuid
+  usuarioId  String           @db.Uuid
   tipo       TipoTokenUsuario
-  tokenHash  String             @unique
-  expiraEm   DateTime           @db.Timestamptz
-  usadoEm    DateTime?          @db.Timestamptz
-  revogadoEm DateTime?          @db.Timestamptz
+  tokenHash  String           @unique
+  expiraEm   DateTime         @db.Timestamptz
+  usadoEm    DateTime?        @db.Timestamptz
+  revogadoEm DateTime?        @db.Timestamptz
   ip         String?
   userAgent  String?
-  criadoEm   DateTime           @default(now()) @db.Timestamptz
-  usuario    Usuario            @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  criadoEm   DateTime         @default(now()) @db.Timestamptz
+  usuario    Usuario          @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
   @@index([usuarioId, tipo, usadoEm, revogadoEm])
   @@index([criadoEm])
@@ -173,17 +187,17 @@ model SenhaHistorico {
 
 // Sessão = família de refresh tokens. Armazena somente o HASH do token atual.
 model Sessao {
-  id               String    @id @default(uuid()) @db.Uuid
-  usuarioId        String    @db.Uuid
-  refreshHash      String    @unique
-  refreshAnterior  String?   // hash do token rotacionado (detecção de reuso)
-  expiraEm         DateTime  @db.Timestamptz
-  revogadaEm       DateTime? @db.Timestamptz
-  ip               String?
-  userAgent        String?
-  criadoEm         DateTime  @default(now()) @db.Timestamptz
-  ultimoUsoEm      DateTime  @default(now()) @db.Timestamptz
-  usuario          Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  id              String    @id @default(uuid()) @db.Uuid
+  usuarioId       String    @db.Uuid
+  refreshHash     String    @unique
+  refreshAnterior String? // hash do token rotacionado (detecção de reuso)
+  expiraEm        DateTime  @db.Timestamptz
+  revogadaEm      DateTime? @db.Timestamptz
+  ip              String?
+  userAgent       String?
+  criadoEm        DateTime  @default(now()) @db.Timestamptz
+  ultimoUsoEm     DateTime  @default(now()) @db.Timestamptz
+  usuario         Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
   @@index([usuarioId, revogadaEm])
   @@index([refreshAnterior])
@@ -210,38 +224,38 @@ model Auditoria {
 // ───────────── Integração ─────────────
 
 model FonteDados {
-  id                  String        @id @default(uuid()) @db.Uuid
-  tipo                FonteDadoTipo @unique
-  nomeAba             String
-  cabecalhos          Json?         // últimos cabeçalhos reais lidos
-  cabecalhosAusentes  Json?
-  intervaloSegundos   Int
-  ativa               Boolean       @default(true)
-  ultimaLeituraEm     DateTime?     @db.Timestamptz
-  ultimoSucessoEm     DateTime?     @db.Timestamptz
-  estado              String        @default("NUNCA_SINCRONIZADA")
-  ultimoErro          String?
-  atualizadoEm        DateTime      @updatedAt @db.Timestamptz
+  id                 String        @id @default(uuid()) @db.Uuid
+  tipo               FonteDadoTipo @unique
+  nomeAba            String
+  cabecalhos         Json? // últimos cabeçalhos reais lidos
+  cabecalhosAusentes Json?
+  intervaloSegundos  Int
+  ativa              Boolean       @default(true)
+  ultimaLeituraEm    DateTime?     @db.Timestamptz
+  ultimoSucessoEm    DateTime?     @db.Timestamptz
+  estado             String        @default("NUNCA_SINCRONIZADA")
+  ultimoErro         String?
+  atualizadoEm       DateTime      @updatedAt @db.Timestamptz
 
   @@map("fontes_dados")
 }
 
 model Sincronizacao {
-  id             String              @id @default(uuid()) @db.Uuid
-  fonte          FonteDadoTipo
-  modo           String              // INCREMENTAL | COMPLETA | INICIAL
-  status         StatusSincronizacao @default(EXECUTANDO)
-  iniciadaEm     DateTime            @default(now()) @db.Timestamptz
-  finalizadaEm   DateTime?           @db.Timestamptz
-  duracaoMs      Int?
-  lidos          Int                 @default(0)
-  inseridos      Int                 @default(0)
-  atualizados    Int                 @default(0)
-  ignorados      Int                 @default(0)
-  comErro        Int                 @default(0)
-  erro           String?
-  disparadaPor   String              @default("worker")
-  erros          ErroImportacao[]
+  id           String              @id @default(uuid()) @db.Uuid
+  fonte        FonteDadoTipo
+  modo         String // INCREMENTAL | COMPLETA | INICIAL
+  status       StatusSincronizacao @default(EXECUTANDO)
+  iniciadaEm   DateTime            @default(now()) @db.Timestamptz
+  finalizadaEm DateTime?           @db.Timestamptz
+  duracaoMs    Int?
+  lidos        Int                 @default(0)
+  inseridos    Int                 @default(0)
+  atualizados  Int                 @default(0)
+  ignorados    Int                 @default(0)
+  comErro      Int                 @default(0)
+  erro         String?
+  disparadaPor String              @default("worker")
+  erros        ErroImportacao[]
 
   @@index([fonte, iniciadaEm])
   @@index([status])
@@ -251,10 +265,10 @@ model Sincronizacao {
 // Cursor = quantas linhas de DADOS (excluindo cabeçalho) já foram persistidas.
 // A posição é só otimização de leitura; a identidade vem das chaves determinísticas.
 model SincronizacaoCursor {
-  fonte          FonteDadoTipo @id
-  ultimaLinha    Int           @default(0)
-  assinaturaCab  String?
-  atualizadoEm   DateTime      @updatedAt @db.Timestamptz
+  fonte         FonteDadoTipo @id
+  ultimaLinha   Int           @default(0)
+  assinaturaCab String?
+  atualizadoEm  DateTime      @updatedAt @db.Timestamptz
 
   @@map("sincronizacao_cursor")
 }
@@ -262,8 +276,8 @@ model SincronizacaoCursor {
 model RegistroImportado {
   id           String        @id @default(uuid()) @db.Uuid
   fonte        FonteDadoTipo
-  chave        String        // chave determinística da linha
-  hash         String        // hash normalizado do conteúdo
+  chave        String // chave determinística da linha
+  hash         String // hash normalizado do conteúdo
   linhaOrigem  Int
   importadoEm  DateTime      @default(now()) @db.Timestamptz
   atualizadoEm DateTime      @updatedAt @db.Timestamptz
@@ -278,7 +292,7 @@ model ErroImportacao {
   fonte           FonteDadoTipo
   linhaOrigem     Int?
   codigo          String
-  mensagem        String         // sanitizada, sem dados sensíveis
+  mensagem        String // sanitizada, sem dados sensíveis
   campo           String?
   criadoEm        DateTime       @default(now()) @db.Timestamptz
   sincronizacao   Sincronizacao? @relation(fields: [sincronizacaoId], references: [id], onDelete: SetNull)
@@ -290,9 +304,9 @@ model ErroImportacao {
 // ───────────── Vendas ─────────────
 
 model Loja {
-  id       String  @id @default(uuid()) @db.Uuid
-  nome     String  @unique
-  vendas   Venda[]
+  id     String  @id @default(uuid()) @db.Uuid
+  nome   String  @unique
+  vendas Venda[]
 
   @@map("lojas")
 }
@@ -308,129 +322,129 @@ model Produto {
 }
 
 model Afiliado {
-  id             String                 @id @default(uuid()) @db.Uuid
-  nome           String                 // nome canônico (original)
-  nomeBusca      String                 @unique // minúsculo, sem acento, espaços colapsados
-  criadoEm       DateTime               @default(now()) @db.Timestamptz
-  aliases        AfiliadoAlias[]
-  regras         RegraComissaoAfiliado[]
-  vendas         Venda[]
+  id        String                  @id @default(uuid()) @db.Uuid
+  nome      String // nome canônico (original)
+  nomeBusca String                  @unique // minúsculo, sem acento, espaços colapsados
+  criadoEm  DateTime                @default(now()) @db.Timestamptz
+  aliases   AfiliadoAlias[]
+  regras    RegraComissaoAfiliado[]
+  vendas    Venda[]
 
   @@map("afiliados")
 }
 
 model AfiliadoAlias {
-  id          String   @id @default(uuid()) @db.Uuid
-  afiliadoId  String   @db.Uuid
-  alias       String
-  aliasBusca  String   @unique
-  criadoEm    DateTime @default(now()) @db.Timestamptz
-  afiliado    Afiliado @relation(fields: [afiliadoId], references: [id], onDelete: Cascade)
+  id         String   @id @default(uuid()) @db.Uuid
+  afiliadoId String   @db.Uuid
+  alias      String
+  aliasBusca String   @unique
+  criadoEm   DateTime @default(now()) @db.Timestamptz
+  afiliado   Afiliado @relation(fields: [afiliadoId], references: [id], onDelete: Cascade)
 
   @@index([afiliadoId])
   @@map("afiliado_aliases")
 }
 
 model RegraComissaoAfiliado {
-  id              String    @id @default(uuid()) @db.Uuid
-  afiliadoId      String    @db.Uuid
+  id                String    @id @default(uuid()) @db.Uuid
+  afiliadoId        String    @db.Uuid
   valorFixoCentavos Int?
-  percentualBps   Int?      // pontos-base (1% = 100)
-  vigenteDe       DateTime  @db.Timestamptz
-  vigenteAte      DateTime? @db.Timestamptz
-  fonte           String    // origem da regra (contrato, planilha, etc.)
-  observacao      String?
-  criadoPorId     String?   @db.Uuid
-  criadoEm        DateTime  @default(now()) @db.Timestamptz
-  afiliado        Afiliado  @relation(fields: [afiliadoId], references: [id], onDelete: Cascade)
+  percentualBps     Int? // pontos-base (1% = 100)
+  vigenteDe         DateTime  @db.Timestamptz
+  vigenteAte        DateTime? @db.Timestamptz
+  fonte             String // origem da regra (contrato, planilha, etc.)
+  observacao        String?
+  criadoPorId       String?   @db.Uuid
+  criadoEm          DateTime  @default(now()) @db.Timestamptz
+  afiliado          Afiliado  @relation(fields: [afiliadoId], references: [id], onDelete: Cascade)
 
   @@index([afiliadoId, vigenteDe])
   @@map("regras_comissao_afiliado")
 }
 
 model RegraClassificacao {
-  id          String                @id @default(uuid()) @db.Uuid
-  nome        String
-  campo       CampoClassificacao
-  operador    OperadorClassificacao
-  valor       String
-  grupo       TipoGrupo
-  canal       String?               // ex.: SMS, EMAIL (rótulo livre, só da regra)
-  prioridade  Int                   @default(100)
-  ativa       Boolean               @default(true)
-  versao      Int                   @default(1)
-  criadoPorId String?               @db.Uuid
-  criadoEm    DateTime              @default(now()) @db.Timestamptz
-  atualizadoEm DateTime             @updatedAt @db.Timestamptz
+  id           String                @id @default(uuid()) @db.Uuid
+  nome         String
+  campo        CampoClassificacao
+  operador     OperadorClassificacao
+  valor        String
+  grupo        TipoGrupo
+  canal        String? // ex.: SMS, EMAIL (rótulo livre, só da regra)
+  prioridade   Int                   @default(100)
+  ativa        Boolean               @default(true)
+  versao       Int                   @default(1)
+  criadoPorId  String?               @db.Uuid
+  criadoEm     DateTime              @default(now()) @db.Timestamptz
+  atualizadoEm DateTime              @updatedAt @db.Timestamptz
 
   @@index([ativa, prioridade])
   @@map("regras_classificacao")
 }
 
 model Venda {
-  id                    String         @id @default(uuid()) @db.Uuid
-  pedido                String         @unique
-  lojaId                String?        @db.Uuid
-  produtoId             String?        @db.Uuid
-  afiliadoId            String?        @db.Uuid
-  afiliadoNomeOriginal  String?
-  grupo                 TipoGrupo
-  tipoVenda             TipoVenda
-  tipoBruto             String?        // valor original da coluna tipo (permite reclassificar)
-  status                StatusVenda
-  origem                String?
-  tipoAtendimento       String?
-  atendente             String?
-  checkout              String?
-  kitNome               String?
-  metodoPagamento       String?
-  parcelas              Int?
-  valorTotalCentavos    Int?           // pode incluir juros
-  valorVendaCentavos    Int            // valor_sem_juros (base de faturamento)
-  jurosCentavos         Int?
-  valorLiquidoCentavos  Int?
-  comissaoCentavos      Int?           // null = ausente (diferente de 0)
-  comissaoFonte         FonteComissao  @default(AUSENTE)
-  taxaCallCenterCentavos Int?
+  id                       String        @id @default(uuid()) @db.Uuid
+  pedido                   String        @unique
+  lojaId                   String?       @db.Uuid
+  produtoId                String?       @db.Uuid
+  afiliadoId               String?       @db.Uuid
+  afiliadoNomeOriginal     String?
+  grupo                    TipoGrupo
+  tipoVenda                TipoVenda
+  tipoBruto                String? // valor original da coluna tipo (permite reclassificar)
+  status                   StatusVenda
+  origem                   String?
+  tipoAtendimento          String?
+  atendente                String?
+  checkout                 String?
+  kitNome                  String?
+  metodoPagamento          String?
+  parcelas                 Int?
+  valorTotalCentavos       Int? // pode incluir juros
+  valorVendaCentavos       Int // valor_sem_juros (base de faturamento)
+  jurosCentavos            Int?
+  valorLiquidoCentavos     Int?
+  comissaoCentavos         Int? // null = ausente (diferente de 0)
+  comissaoFonte            FonteComissao @default(AUSENTE)
+  taxaCallCenterCentavos   Int?
   // Comissão do AFILIADO (distinta da comissão da operação, que é o que a Impera recebe)
   comissaoAfiliadoCentavos Int?
-  comissaoAfiliadoFonte FonteComissao  @default(AUSENTE)
-  vendedorId            String?        // id_user_venda do webhook (operador/vendedor); sem dados pessoais
-  canalPlanilha         String?        // coluna `canal` do EVENTOS (front, call center, recuperação de vendas, back end, afiliado): quem fechou a venda
-  subcanal              String?        // detalhe do canal: compra/upsell/downsell no front, o vendedor no call center/recuperação, SMS/e-mail/disparo no back end
-  origemLead            String?        // quando o vendedor fecha lead de SMS, e-mail ou disparo
-  clienteHash           String?        // sha256 do cliente_id (EVENTOS): só permite agrupar pedidos do mesmo cliente (frete); nunca o id original
-  x1                    Boolean        @default(false)
-  campanha              String?
-  anuncio               String?
-  clickId               String?
-  utmSource             String?
-  utmCampaign           String?
-  utmContent            String?
-  src                   String?
-  pagoEm                DateTime?      @db.Timestamptz
-  criadoEmOrigem        DateTime?      @db.Timestamptz
-  estornadoEm           DateTime?      @db.Timestamptz
-  chargebackEm          DateTime?      @db.Timestamptz
-  perdaCentavos         Int            @default(0) // perda (integral ou soma de parciais) contada UMA vez
-  perdaEm               DateTime?      @db.Timestamptz // data do evento que estabeleceu a perda (a mais antiga)
-  perdaTipo             TipoEvento?    // ESTORNO ou CHARGEBACK: tipo do evento mais antigo
-  classificacaoMotivo   String?        // auditoria: por que caiu neste grupo
-  classificacaoRegraId  String?        @db.Uuid
-  avisos                String[]       @default([]) // limitações de conciliação (ex.: valor de evento ausente)
-  fonteVerdade          FonteDadoTipo
-  redtrackConciliado    Boolean        @default(false)
-  hashConteudo          String
-  sincronizadoEm        DateTime       @default(now()) @db.Timestamptz
-  criadoEm              DateTime       @default(now()) @db.Timestamptz
-  atualizadoEm          DateTime       @updatedAt @db.Timestamptz
+  comissaoAfiliadoFonte    FonteComissao @default(AUSENTE)
+  vendedorId               String? // id_user_venda do webhook (operador/vendedor); sem dados pessoais
+  canalPlanilha            String? // coluna `canal` do EVENTOS (front, call center, recuperação de vendas, back end, afiliado): quem fechou a venda
+  subcanal                 String? // detalhe do canal: compra/upsell/downsell no front, o vendedor no call center/recuperação, SMS/e-mail/disparo no back end
+  origemLead               String? // quando o vendedor fecha lead de SMS, e-mail ou disparo
+  clienteHash              String? // sha256 do cliente_id (EVENTOS): só permite agrupar pedidos do mesmo cliente (frete); nunca o id original
+  x1                       Boolean       @default(false)
+  campanha                 String?
+  anuncio                  String?
+  clickId                  String?
+  utmSource                String?
+  utmCampaign              String?
+  utmContent               String?
+  src                      String?
+  pagoEm                   DateTime?     @db.Timestamptz
+  criadoEmOrigem           DateTime?     @db.Timestamptz
+  estornadoEm              DateTime?     @db.Timestamptz
+  chargebackEm             DateTime?     @db.Timestamptz
+  perdaCentavos            Int           @default(0) // perda (integral ou soma de parciais) contada UMA vez
+  perdaEm                  DateTime?     @db.Timestamptz // data do evento que estabeleceu a perda (a mais antiga)
+  perdaTipo                TipoEvento? // ESTORNO ou CHARGEBACK: tipo do evento mais antigo
+  classificacaoMotivo      String? // auditoria: por que caiu neste grupo
+  classificacaoRegraId     String?       @db.Uuid
+  avisos                   String[]      @default([]) // limitações de conciliação (ex.: valor de evento ausente)
+  fonteVerdade             FonteDadoTipo
+  redtrackConciliado       Boolean       @default(false)
+  hashConteudo             String
+  sincronizadoEm           DateTime      @default(now()) @db.Timestamptz
+  criadoEm                 DateTime      @default(now()) @db.Timestamptz
+  atualizadoEm             DateTime      @updatedAt @db.Timestamptz
 
-  loja      Loja?          @relation(fields: [lojaId], references: [id])
-  produto   Produto?       @relation(fields: [produtoId], references: [id])
-  afiliado  Afiliado?      @relation(fields: [afiliadoId], references: [id])
-  eventos   VendaEvento[]
-  itens     VendaProduto[]
-  redtrack  RedtrackConversao?
+  loja     Loja?              @relation(fields: [lojaId], references: [id])
+  produto  Produto?           @relation(fields: [produtoId], references: [id])
+  afiliado Afiliado?          @relation(fields: [afiliadoId], references: [id])
+  eventos  VendaEvento[]
+  itens    VendaProduto[]
+  redtrack RedtrackConversao?
 
   @@index([status])
   @@index([pagoEm])
@@ -451,19 +465,19 @@ model Venda {
 }
 
 model VendaEvento {
-  id               String         @id @default(uuid()) @db.Uuid
-  vendaId          String         @db.Uuid
-  eventKey         String         @unique // determinística, ver docs/IDENTIDADE.md
+  id               String        @id @default(uuid()) @db.Uuid
+  vendaId          String        @db.Uuid
+  eventKey         String        @unique // determinística, ver docs/IDENTIDADE.md
   tipo             TipoEvento
   fonte            FonteDadoTipo
-  ocorridoEm       DateTime?      @db.Timestamptz
-  recebidoEm       DateTime?      @db.Timestamptz
+  ocorridoEm       DateTime?     @db.Timestamptz
+  recebidoEm       DateTime?     @db.Timestamptz
   valorCentavos    Int?
   comissaoCentavos Int?
   linhaOrigem      Int?
   hashConteudo     String
-  criadoEm         DateTime       @default(now()) @db.Timestamptz
-  venda            Venda          @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  criadoEm         DateTime      @default(now()) @db.Timestamptz
+  venda            Venda         @relation(fields: [vendaId], references: [id], onDelete: Cascade)
 
   @@index([vendaId])
   @@index([tipo, ocorridoEm])
@@ -484,18 +498,18 @@ model VendaProduto {
 }
 
 model RedtrackConversao {
-  id              String   @id @default(uuid()) @db.Uuid
-  pedido          String   @unique
-  vendaId         String?  @unique @db.Uuid
-  conversaoId     String?
-  payoutCentavos  Int?
-  situacao        String?
-  campanha        String?
-  anuncio         String?
-  hashConteudo    String
-  linhaOrigem     Int?
-  sincronizadoEm  DateTime @default(now()) @db.Timestamptz
-  venda           Venda?   @relation(fields: [vendaId], references: [id], onDelete: SetNull)
+  id             String   @id @default(uuid()) @db.Uuid
+  pedido         String   @unique
+  vendaId        String?  @unique @db.Uuid
+  conversaoId    String?
+  payoutCentavos Int?
+  situacao       String?
+  campanha       String?
+  anuncio        String?
+  hashConteudo   String
+  linhaOrigem    Int?
+  sincronizadoEm DateTime @default(now()) @db.Timestamptz
+  venda          Venda?   @relation(fields: [vendaId], references: [id], onDelete: SetNull)
 
   @@index([campanha])
   @@index([situacao])
@@ -505,21 +519,21 @@ model RedtrackConversao {
 // ───────────── Financeiro ─────────────
 
 model CategoriaCusto {
-  id       String             @id @default(uuid()) @db.Uuid
-  nome     String             @unique
-  ativa    Boolean            @default(true)
-  custos   CustoOperacional[]
-  regras   RegraCusto[]
+  id     String             @id @default(uuid()) @db.Uuid
+  nome   String             @unique
+  ativa  Boolean            @default(true)
+  custos CustoOperacional[]
+  regras RegraCusto[]
 
   @@map("categorias_custo")
 }
 
 model RecorrenciaCusto {
-  id             String             @id @default(uuid()) @db.Uuid
-  periodicidade  PeriodicidadeCusto
-  inicio         DateTime           @db.Date
-  fim            DateTime?          @db.Date
-  custos         CustoOperacional[]
+  id            String             @id @default(uuid()) @db.Uuid
+  periodicidade PeriodicidadeCusto
+  inicio        DateTime           @db.Date
+  fim           DateTime?          @db.Date
+  custos        CustoOperacional[]
 
   @@map("recorrencias_custo")
 }
@@ -527,10 +541,10 @@ model RecorrenciaCusto {
 model CustoOperacional {
   id              String               @id @default(uuid()) @db.Uuid
   descricao       String
-  tipo            String               // FIXO | VARIAVEL
+  tipo            String // FIXO | VARIAVEL
   categoriaId     String               @db.Uuid
   recorrenciaId   String?              @db.Uuid
-  grupo           TipoGrupo?           // grupo de receita ao qual o custo se atribui
+  grupo           TipoGrupo? // grupo de receita ao qual o custo se atribui
   valorCentavos   Int
   vencimento      DateTime             @db.Date
   statusPagamento StatusPagamentoCusto @default(PENDENTE)
@@ -550,34 +564,34 @@ model CustoOperacional {
 }
 
 model AnexoCusto {
-  id            String           @id @default(uuid()) @db.Uuid
-  custoId       String           @db.Uuid
-  nomeOriginal  String
-  mime          String
-  tamanhoBytes  Int
-  caminho       String           // caminho relativo em storage privado
-  criadoEm      DateTime         @default(now()) @db.Timestamptz
-  custo         CustoOperacional @relation(fields: [custoId], references: [id], onDelete: Cascade)
+  id           String           @id @default(uuid()) @db.Uuid
+  custoId      String           @db.Uuid
+  nomeOriginal String
+  mime         String
+  tamanhoBytes Int
+  caminho      String // caminho relativo em storage privado
+  criadoEm     DateTime         @default(now()) @db.Timestamptz
+  custo        CustoOperacional @relation(fields: [custoId], references: [id], onDelete: Cascade)
 
   @@index([custoId])
   @@map("anexos_custo")
 }
 
 model RegraCusto {
-  id           String         @id @default(uuid()) @db.Uuid
-  nome         String
-  tipo         TipoRegraCusto
-  grupo        TipoGrupo?     // null = todos os grupos
-  categoriaId  String?        @db.Uuid
-  valorCentavos Int?          // para VALOR_*
-  percentualBps Int?          // para PERCENTUAL_RECEITA (1% = 100)
-  vigenteDe    DateTime       @db.Timestamptz
-  vigenteAte   DateTime?      @db.Timestamptz
-  metodologia  String
-  ativa        Boolean        @default(true)
-  criadoEm     DateTime       @default(now()) @db.Timestamptz
-  atualizadoEm DateTime       @updatedAt @db.Timestamptz
-  categoria    CategoriaCusto? @relation(fields: [categoriaId], references: [id])
+  id            String          @id @default(uuid()) @db.Uuid
+  nome          String
+  tipo          TipoRegraCusto
+  grupo         TipoGrupo? // null = todos os grupos
+  categoriaId   String?         @db.Uuid
+  valorCentavos Int? // para VALOR_*
+  percentualBps Int? // para PERCENTUAL_RECEITA (1% = 100)
+  vigenteDe     DateTime        @db.Timestamptz
+  vigenteAte    DateTime?       @db.Timestamptz
+  metodologia   String
+  ativa         Boolean         @default(true)
+  criadoEm      DateTime        @default(now()) @db.Timestamptz
+  atualizadoEm  DateTime        @updatedAt @db.Timestamptz
+  categoria     CategoriaCusto? @relation(fields: [categoriaId], references: [id])
 
   @@index([ativa, vigenteDe])
   @@map("regras_custo")
@@ -589,4 +603,202 @@ model ConfiguracaoFinanceira {
   atualizadoEm DateTime @updatedAt @db.Timestamptz
 
   @@map("configuracoes_financeiras")
+}
+
+// ───────────────────────────── RH (colaboradores PJ, salários) ─────────────────────────────
+// Origem: sistema de RH atual (MySQL impera_rh · app_state). Importação repetível e somente leitura: `npm run rh:importar`.
+// Dados pessoais e SALÁRIOS: acesso restrito (RH e CEO veem salário); toda consulta a salário é auditada.
+
+enum RhTipoMovimentacao {
+  PROMOCAO
+  REAJUSTE
+}
+
+model RhColaborador {
+  id              String    @id @default(uuid()) @db.Uuid
+  /// id do colaborador no sistema de RH atual (chave da importação)
+  legadoId        String?   @unique
+  nome            String
+  email           String?
+  celular         String?
+  nascimento      DateTime? @db.Date
+  /// CNPJ do colaborador (todos são PJ)
+  cnpj            String?
+  endereco        String?
+  camiseta        String?
+  departamento    String
+  cargoBase       String?
+  /// título completo (ex.: "Editor Pl", "Líder de Copy")
+  funcao          String?
+  tipoCargo       String?
+  senioridade     String?
+  subnivel        Int?
+  gestorId        String?   @db.Uuid
+  inicio          DateTime? @db.Date
+  demissao        DateTime? @db.Date
+  motivoDemissao  String?
+  /// campo "contrato" do sistema atual: não é o tipo (todos são PJ), é uma anotação sobre o contrato (ex.: ok, falta)
+  contratoObs     String?
+  /// salário mensal atual, em centavos
+  salarioCentavos Int
+  descricao       String?
+  obsCargo        String?
+  discordUserId   String?
+  /// foto guardada como arquivo (não mais base64 dentro do banco)
+  fotoArquivo     String?
+  criadoEm        DateTime  @default(now()) @db.Timestamptz
+  atualizadoEm    DateTime  @updatedAt @db.Timestamptz
+
+  gestor        RhColaborador?   @relation("GestorEquipe", fields: [gestorId], references: [id], onDelete: SetNull)
+  equipe        RhColaborador[]  @relation("GestorEquipe")
+  movimentacoes RhMovimentacao[]
+  usuario       Usuario?
+  rhDocumentos  RhDocumento[]
+  rhFolhaItems  RhFolhaItem[]
+
+  @@index([departamento])
+  @@index([gestorId])
+  @@index([demissao])
+  @@map("rh_colaboradores")
+}
+
+/// Histórico de promoções e reajustes (cargo e salário ao longo do tempo).
+model RhMovimentacao {
+  id                      String             @id @default(uuid()) @db.Uuid
+  legadoId                String?            @unique
+  colaboradorId           String             @db.Uuid
+  tipo                    RhTipoMovimentacao
+  data                    DateTime           @db.Date
+  cargoAnterior           String?
+  cargoNovo               String?
+  departamentoAnterior    String?
+  departamentoNovo        String?
+  senioridadeAnterior     String?
+  senioridadeNova         String?
+  subnivelAnterior        Int?
+  subnivelNovo            Int?
+  salarioAnteriorCentavos Int
+  salarioNovoCentavos     Int
+  obs                     String?
+  criadoEm                DateTime           @default(now()) @db.Timestamptz
+
+  colaborador RhColaborador @relation(fields: [colaboradorId], references: [id], onDelete: Cascade)
+
+  @@index([colaboradorId, data])
+  @@map("rh_movimentacoes")
+}
+
+/// Matriz de cargos e salários: faixa por departamento, cargo e nível (jr, pl, sr, jrSub2, srTopo...).
+model RhFaixaSalarial {
+  id            String   @id @default(uuid()) @db.Uuid
+  departamento  String
+  cargo         String
+  nivel         String
+  valorCentavos Int
+  atualizadoEm  DateTime @updatedAt @db.Timestamptz
+
+  @@unique([departamento, cargo, nivel])
+  @@map("rh_faixas_salariais")
+}
+
+/// Usuários do sistema de RH atual (sem senha): só para ligar, depois, cada login ao colaborador e ao papel.
+model RhUsuarioLegado {
+  id            String   @id @default(uuid()) @db.Uuid
+  legadoId      Int      @unique
+  username      String
+  email         String?
+  papel         String
+  departamento  String?
+  colaboradorId String?  @db.Uuid
+  criadoEm      DateTime @default(now()) @db.Timestamptz
+
+  @@map("rh_usuarios_legado")
+}
+
+enum RhTipoDocumento {
+  NOTA_FISCAL
+  COMPROVANTE_PAGAMENTO
+  CONTRATO
+  OUTRO
+}
+
+enum RhStatusDocumento {
+  ENVIADO
+  APROVADO
+  REPROVADO
+}
+
+/// NF enviada pelo colaborador, comprovante de pagamento, contrato etc. O arquivo fica em disco (fora do Git); aqui só o registro.
+model RhDocumento {
+  id               String            @id @default(uuid()) @db.Uuid
+  colaboradorId    String            @db.Uuid
+  tipo             RhTipoDocumento
+  /// mês de referência (AAAA-MM), quando se aplica (NF e comprovante do mês)
+  competencia      String?
+  valorCentavos    Int?
+  descricao        String?
+  arquivoNome      String
+  arquivoCaminho   String
+  mime             String
+  tamanhoBytes     Int
+  sha256           String
+  status           RhStatusDocumento @default(ENVIADO)
+  motivoReprovacao String?
+  enviadoPorId     String?           @db.Uuid
+  revisadoPorId    String?           @db.Uuid
+  revisadoEm       DateTime?         @db.Timestamptz
+  criadoEm         DateTime          @default(now()) @db.Timestamptz
+
+  colaborador RhColaborador @relation(fields: [colaboradorId], references: [id], onDelete: Cascade)
+
+  @@index([colaboradorId, competencia])
+  @@index([tipo, status])
+  @@map("rh_documentos")
+}
+
+enum RhStatusFolha {
+  ABERTA
+  FECHADA
+}
+
+enum RhStatusPagamento {
+  PENDENTE
+  PAGO
+}
+
+/// Folha de um mês (AAAA-MM): o que a Impera paga aos colaboradores PJ.
+model RhFolhaCompetencia {
+  id           String        @id @default(uuid()) @db.Uuid
+  competencia  String        @unique
+  status       RhStatusFolha @default(ABERTA)
+  fechadaEm    DateTime?     @db.Timestamptz
+  fechadaPorId String?       @db.Uuid
+  criadoEm     DateTime      @default(now()) @db.Timestamptz
+  itens        RhFolhaItem[]
+
+  @@map("rh_folha_competencias")
+}
+
+model RhFolhaItem {
+  id               String            @id @default(uuid()) @db.Uuid
+  competenciaId    String            @db.Uuid
+  colaboradorId    String            @db.Uuid
+  /// salário vigente no mês (pelo histórico de reajustes)
+  salarioCentavos  Int
+  comissaoCentavos Int               @default(0)
+  bonusCentavos    Int               @default(0)
+  descontoCentavos Int               @default(0)
+  /// salário + comissão + bônus − desconto
+  totalCentavos    Int
+  status           RhStatusPagamento @default(PENDENTE)
+  pagoEm           DateTime?         @db.Date
+  obs              String?
+  atualizadoEm     DateTime          @updatedAt @db.Timestamptz
+
+  competencia RhFolhaCompetencia @relation(fields: [competenciaId], references: [id], onDelete: Cascade)
+  colaborador RhColaborador      @relation(fields: [colaboradorId], references: [id], onDelete: Restrict)
+
+  @@unique([competenciaId, colaboradorId])
+  @@index([colaboradorId])
+  @@map("rh_folha_itens")
 }

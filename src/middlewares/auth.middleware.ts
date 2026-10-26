@@ -17,7 +17,7 @@ export function authenticate(opts: { allowPasswordChangePending?: boolean } = {}
 
       const sessao = await prisma.sessao.findUnique({
         where: { id: claims.sid },
-        select: { revogadaEm: true, expiraEm: true, usuario: { select: { id: true, email: true, perfil: true, ativo: true, trocaSenhaObrig: true } } },
+        select: { revogadaEm: true, expiraEm: true, usuario: { select: { id: true, email: true, perfil: true, ativo: true, trocaSenhaObrig: true, rhPapel: true, colaboradorId: true } } },
       });
       if (!sessao || sessao.revogadaEm || sessao.expiraEm < new Date()) throw Errors.unauthorized();
       const u = sessao.usuario;
@@ -25,7 +25,7 @@ export function authenticate(opts: { allowPasswordChangePending?: boolean } = {}
       if (u.trocaSenhaObrig && !opts.allowPasswordChangePending) throw Errors.passwordChangeRequired();
 
       // perfil vem SEMPRE do banco, nunca do token/cliente
-      req.user = { id: u.id, email: u.email, perfil: u.perfil, sessaoId: claims.sid };
+      req.user = { id: u.id, email: u.email, perfil: u.perfil, rhPapel: u.rhPapel, colaboradorId: u.colaboradorId, sessaoId: claims.sid };
       next();
     } catch (e) {
       next(e);

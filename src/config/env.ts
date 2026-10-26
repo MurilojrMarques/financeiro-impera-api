@@ -76,6 +76,9 @@ const schema = z.object({
 
   UPLOAD_DIR: z.string().default('./storage/anexos'),
   UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(5 * 1024 * 1024),
+  /** RH: fotos e documentos (NF, comprovantes). Fora do Git; faça backup desta pasta. */
+  RH_STORAGE_DIR: z.string().default('./storage/rh'),
+  RH_DOC_MAX_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
 
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().positive().default(10),
   RATE_LIMIT_LOGIN_WINDOW_SECONDS: z.coerce.number().int().positive().default(900),

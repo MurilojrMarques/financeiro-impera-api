@@ -1,4 +1,4 @@
-import type { PerfilUsuario } from '../../generated/prisma/client';
+import type { PerfilUsuario, RhPapel } from '../../generated/prisma/client';
 
 declare global {
   namespace Express {
@@ -6,6 +6,9 @@ declare global {
       id: string;
       email: string | null;
       perfil: PerfilUsuario;
+      /** papel no RH (null = sem acesso ao RH) e o colaborador deste login; sempre lidos do banco */
+      rhPapel: RhPapel | null;
+      colaboradorId: string | null;
       sessaoId: string;
     }
     interface Request {
