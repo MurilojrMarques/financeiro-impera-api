@@ -4,6 +4,7 @@ import { checkDatabase, closeDatabase } from './config/database';
 import { env } from './config/env';
 import { logger } from './config/logger';
 import { iniciarSyncAutomatica } from './jobs/auto-sync';
+import { iniciarRhSync } from './jobs/rh-sync';
 
 async function main(): Promise<void> {
   if (!(await checkDatabase())) {
@@ -14,6 +15,7 @@ async function main(): Promise<void> {
   const server: Server = app.listen(env.PORT, () => logger.info({ port: env.PORT }, 'API iniciada'));
   server.requestTimeout = 60_000;
   const syncAuto = iniciarSyncAutomatica();
+  const rhSync = iniciarRhSync();
   server.headersTimeout = 30_000;
 
   let encerrando = false;
@@ -22,7 +24,7 @@ async function main(): Promise<void> {
     encerrando = true;
     logger.info({ signal }, 'encerrando API');
     // para de aceitar conexões, aguarda as em andamento e fecha o banco
-    void (syncAuto?.parar() ?? Promise.resolve()).finally(() =>
+    void Promise.allSettled([syncAuto?.parar(), rhSync?.parar()]).finally(() =>
       server.close(() => {
         closeDatabase().finally(() => process.exit(0));
       }),

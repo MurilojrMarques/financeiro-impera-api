@@ -1,6 +1,15 @@
 # Módulo de RH (colaboradores PJ)
 
-API em `/api/v1/rh`. O sistema de RH antigo (MySQL `impera_rh`, tabela `app_state`) **continua funcionando**: esta API só lê dele.
+API em `/api/v1/rh`.
+
+## Fonte de verdade: o sistema do RH (Alexandre)
+Salário, promoção, cargo, cadastro e desligamento **nascem somente no sistema do RH** (MySQL `impera_rh`, tabela `app_state`). Esta API **só consulta e monitora**: não grava na origem e **não tem nenhuma rota para alterar salário, cargo ou cadastro** (para nunca existirem dois salários diferentes).
+- **Monitoramento contínuo:** a cada `RH_SYNC_INTERVAL_MINUTES` (padrão 5) a API pergunta à origem quando o JSON foi salvo pela última vez (consulta barata, sem baixar fotos). Se mudou, lê tudo, compara com o que já tem e grava **cada mudança detectada** em `rh_alteracoes` (salário antes/depois, cargo, departamento, gestor, desligamento, promoção/reajuste, novo colaborador, sumiu da origem).
+- **Folha acompanha:** se um salário mudar e a folha do mês corrente ainda estiver **aberta**, o item é recalculado (mantendo comissão, bônus, desconto e pagamento). Folha fechada nunca é tocada.
+- **Desligamento na origem** desativa o login da pessoa aqui e encerra as sessões.
+- **Inconsistência na origem:** se o salário atual de alguém for diferente do último reajuste registrado na própria origem (dois valores para o mesmo salário), aparece em `/monitoramento`.
+- **Falha da origem** (VPS fora, túnel, senha): o erro fica registrado, o painel mostra `atrasado`, e a API tenta de novo no ciclo seguinte.
+- Auditoria e logs **não** guardam valores de salário (o ADMIN lê a auditoria e não pode ver salários); os valores ficam só em `rh_alteracoes`, visível a RH e CEO.
 
 ## Dados
 Tabelas no PostgreSQL: `rh_colaboradores`, `rh_movimentacoes` (promoções/reajustes), `rh_faixas_salariais`, `rh_documentos`, `rh_folha_competencias`, `rh_folha_itens`, `rh_usuarios_legado` (sem senhas).
@@ -12,7 +21,7 @@ Variáveis `RH_*` no `.env` (túnel SSH + MySQL). Comandos:
 | Comando | O que faz |
 |---|---|
 | `npm run rh:explorar` | mostra estrutura e agregados do JSON, sem dados pessoais |
-| `npm run rh:importar` | simulação; com `-- --aplicar` grava (repetível: atualiza pelo id do sistema antigo) |
+| `npm run rh:importar` | simulação do que mudou na origem; com `-- --aplicar` grava e registra (a API já faz isso sozinha) |
 | `npm run rh:usuarios` | simulação; com `-- --aplicar` cria os logins dos colaboradores ativos |
 
 Fotos viram arquivos em `RH_STORAGE_DIR/fotos`. **Faça backup de `RH_STORAGE_DIR`** (fotos, NF, comprovantes).
@@ -22,7 +31,7 @@ O papel de RH (`rhPapel`) é independente do perfil financeiro: a mesma pessoa p
 
 | Papel | Colaboradores | Salário | Escreve | Documentos |
 |---|---|---|---|---|
-| RH | todos | todos | sim | todos; envia qualquer tipo; aprova/reprova |
+| RH | todos | todos | folha (comissão, bônus, desconto, pagamento) e documentos; **não** salário/cadastro | todos; envia qualquer tipo; aprova/reprova |
 | CEO | todos | todos | não | vê e baixa todos |
 | GESTOR | a própria equipe (diretos e indiretos), sem salário nem CNPJ/endereço/nascimento; o próprio cadastro completo | só o próprio | não | só os próprios |
 | COLABORADOR | só o próprio | o próprio | não | só os próprios; envia a própria NF |
@@ -30,12 +39,11 @@ O papel de RH (`rhPapel`) é independente do perfil financeiro: a mesma pessoa p
 Toda consulta a salário gera auditoria (`rh.salario_consultado`).
 
 ## Rotas
-- `GET /colaboradores`, `/colaboradores/eu`, `/colaboradores/:id`, `/colaboradores/:id/foto`, `/colaboradores/:id/movimentacoes`
+- Consulta: `GET /colaboradores`, `/colaboradores/eu`, `/colaboradores/:id`, `/colaboradores/:id/foto`, `/colaboradores/:id/movimentacoes`
 - `GET /colaboradores/painel` (RH/CEO): ativos, folha mensal, por departamento e senioridade, movimentações dos últimos 90 dias
-- `POST /colaboradores`, `PATCH /colaboradores/:id` (inclui desligamento, que desativa o login), `DELETE` (só sem histórico) — RH
-- `POST /colaboradores/:id/movimentacoes` — promoção/reajuste: grava histórico e atualiza o salário (RH)
-- `GET /folha`, `GET /folha/:AAAA-MM` (RH/CEO); `POST /folha/:AAAA-MM/gerar`, `PATCH /folha/:AAAA-MM/itens/:id`, `POST /folha/:AAAA-MM/fechar` (RH)
-- `POST /documentos` (multipart, campo `arquivo`), `GET /documentos`, `GET /documentos/:id/arquivo`, `PATCH /documentos/:id/status`
+- Monitoramento (RH/CEO): `GET /monitoramento`, `GET /alteracoes?tipo=SALARIO&desde=AAAA-MM-DD`, `POST /sincronizar` (confere a origem agora; `?forcar=true` relê tudo)
+- Folha: `GET /folha`, `GET /folha/:AAAA-MM` (RH/CEO); `POST /folha/:AAAA-MM/gerar`, `PATCH /folha/:AAAA-MM/itens/:id` (comissão, bônus, desconto, pagamento), `POST /folha/:AAAA-MM/fechar` (RH)
+- Documentos: `POST /documentos` (multipart, campo `arquivo`), `GET /documentos`, `GET /documentos/:id/arquivo`, `PATCH /documentos/:id/status`
 
 ## Folha
 O valor pago é o **salário cadastrado** (sem o multiplicador de PJ 1,10 do sistema antigo, decisão de 26/10/2026) + comissão + bônus − desconto, estes três lançados manualmente.

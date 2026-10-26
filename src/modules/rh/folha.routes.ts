@@ -6,7 +6,7 @@ import { audit } from '../../shared/services/audit.service';
 import { created, ok } from '../../shared/utils/response';
 import { exigeRh, PAPEIS_ESCREVEM, PAPEIS_VEEM_SALARIO } from './rh.access';
 import { competenciaParams, folhaItemBody, itemParams } from './rh.schemas';
-import { colaboradoresDoMes, diasTrabalhadosNoMes, limitesDoMes, salarioNaData, salarioProporcional, totalDoItem } from './rh.service';
+import { calculoDoItem, colaboradoresDoMes, totalDoItem } from './rh.service';
 
 /**
  * Folha de pagamento (PJ). Só RH e CEO enxergam; só o RH altera.
@@ -59,18 +59,13 @@ folhaRouter.get('/:competencia', validate({ params: competenciaParams }), async 
 folhaRouter.post('/:competencia/gerar', exigeRh(PAPEIS_ESCREVEM), validate({ params: competenciaParams }), async (req, res) => {
   const competencia = req.valid.params.competencia as string;
   const recalcular = req.query.recalcular === 'true';
-  const { fim } = limitesDoMes(competencia);
   const existente = await prisma.rhFolhaCompetencia.findUnique({ where: { competencia } });
   if (existente?.status === 'FECHADA') throw Errors.conflict('Folha fechada: não é possível alterar');
   const pessoas = await colaboradoresDoMes(competencia);
   const comp = existente ?? (await prisma.rhFolhaCompetencia.create({ data: { competencia } }));
   const itensAtuais = await prisma.rhFolhaItem.findMany({ where: { competenciaId: comp.id } });
   const jaTem = new Map(itensAtuais.map((i) => [i.colaboradorId, i]));
-  const calculo = (p: (typeof pessoas)[number]) => {
-    const mensal = salarioNaData(p.salarioCentavos, p.movimentacoes, fim);
-    const dias = diasTrabalhadosNoMes(competencia, p.inicio, p.demissao);
-    return { salarioMensalCentavos: mensal, diasTrabalhados: dias, salarioCentavos: salarioProporcional(mensal, dias) };
-  };
+  const calculo = (p: (typeof pessoas)[number]) => calculoDoItem(competencia, p);
   const novos = pessoas.filter((p) => !jaTem.has(p.id));
   if (novos.length > 0) {
     await prisma.rhFolhaItem.createMany({

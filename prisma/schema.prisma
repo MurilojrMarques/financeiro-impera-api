@@ -646,6 +646,8 @@ model RhColaborador {
   discordUserId   String?
   /// foto guardada como arquivo (não mais base64 dentro do banco)
   fotoArquivo     String?
+  /// SHA-256 da foto na origem: só regrava o arquivo quando ela muda
+  fotoHash        String?
   criadoEm        DateTime  @default(now()) @db.Timestamptz
   atualizadoEm    DateTime  @updatedAt @db.Timestamptz
 
@@ -805,4 +807,63 @@ model RhFolhaItem {
   @@unique([competenciaId, colaboradorId])
   @@index([colaboradorId])
   @@map("rh_folha_itens")
+}
+
+enum RhStatusSincronizacao {
+  SUCESSO
+  ERRO
+}
+
+enum RhTipoAlteracao {
+  NOVO_COLABORADOR
+  SALARIO
+  CARGO
+  DEPARTAMENTO
+  GESTOR
+  DESLIGAMENTO
+  MOVIMENTACAO
+  REMOVIDO_DA_ORIGEM
+}
+
+/// Uma leitura do sistema de RH de origem (MySQL do Alexandre). A API NUNCA grava lá e NUNCA altera salário aqui: só espelha e monitora.
+model RhSincronizacao {
+  id                   String                @id @default(uuid()) @db.Uuid
+  iniciadaEm           DateTime              @default(now()) @db.Timestamptz
+  concluidaEm          DateTime?             @db.Timestamptz
+  status               RhStatusSincronizacao
+  /// job (automática), manual (botão/endpoint) ou script
+  gatilho              String
+  origemAtualizadaEm   DateTime?             @db.Timestamptz
+  origemAtualizadaPor  String?
+  lidos                Int                   @default(0)
+  novos                Int                   @default(0)
+  atualizados          Int                   @default(0)
+  alteracoes           Int                   @default(0)
+  inconsistencias      Int                   @default(0)
+  erro                 String?
+  detalhes             Json?
+  alteracoesDetectadas RhAlteracao[]
+
+  @@index([iniciadaEm])
+  @@map("rh_sincronizacoes")
+}
+
+/// Mudança detectada na origem entre duas leituras (salário, cargo, departamento, gestor, desligamento, promoção/reajuste, novo colaborador).
+model RhAlteracao {
+  id              String          @id @default(uuid()) @db.Uuid
+  sincronizacaoId String          @db.Uuid
+  colaboradorId   String?         @db.Uuid
+  tipo            RhTipoAlteracao
+  campo           String?
+  /// valores como texto; salário em centavos
+  anterior        String?
+  novo            String?
+  detectadaEm     DateTime        @default(now()) @db.Timestamptz
+
+  sincronizacao RhSincronizacao @relation(fields: [sincronizacaoId], references: [id], onDelete: Cascade)
+
+  @@index([detectadaEm])
+  @@index([colaboradorId, detectadaEm])
+  @@index([tipo, detectadaEm])
+  @@map("rh_alteracoes")
 }

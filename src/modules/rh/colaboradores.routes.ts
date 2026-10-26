@@ -7,14 +7,13 @@ import { Prisma } from '../../generated/prisma/client';
 import { validate } from '../../middlewares/validate.middleware';
 import { Errors } from '../../shared/errors/app-error';
 import { audit } from '../../shared/services/audit.service';
-import { created, noContent, ok, pageMeta, paginated } from '../../shared/utils/response';
-import { alcanceDe, escreve, exigeRh, PAPEIS_ESCREVEM, PAPEIS_VEEM_SALARIO, podeVer, serializarColaborador, visaoDe } from './rh.access';
-import { atualizarColaboradorBody, criarColaboradorBody, idParams, listQuery, movimentacaoBody } from './rh.schemas';
+import { ok, pageMeta, paginated } from '../../shared/utils/response';
+import { alcanceDe, exigeRh, PAPEIS_VEEM_SALARIO, podeVer, serializarColaborador, visaoDe } from './rh.access';
+import { idParams, listQuery } from './rh.schemas';
 import { fotosDir } from './rh.storage';
 
 export const colaboradoresRouter = Router();
 
-const dia = (s: string): Date => new Date(`${s}T00:00:00.000Z`);
 const comGestor = { gestor: { select: { id: true, nome: true } } } as const;
 
 /** O cadastro do próprio usuário logado. */
@@ -122,100 +121,5 @@ colaboradoresRouter.get('/:id/movimentacoes', validate({ params: idParams }), as
   ok(res, movs);
 });
 
-// ── escrita: somente RH ──────────────────────────────────────────────────────────────────────────────────────────────────────
-
-colaboradoresRouter.post('/', exigeRh(PAPEIS_ESCREVEM), validate({ body: criarColaboradorBody }), async (req, res) => {
-  const b = req.valid.body as ReturnType<typeof criarColaboradorBody.parse>;
-  if (b.gestorId && !(await prisma.rhColaborador.findUnique({ where: { id: b.gestorId }, select: { id: true } }))) throw Errors.validation([{ path: 'gestorId', message: 'Gestor não encontrado' }]);
-  const c = await prisma.rhColaborador.create({
-    data: { ...b, nascimento: b.nascimento ? dia(b.nascimento) : null, inicio: b.inicio ? dia(b.inicio) : null },
-    include: comGestor,
-  });
-  await audit(req, 'rh.colaborador_criado', 'rh_colaborador', c.id, { departamento: c.departamento, salarioCentavos: c.salarioCentavos });
-  created(res, serializarColaborador(c, { salario: true, pessoais: true }));
-});
-
-colaboradoresRouter.patch('/:id', exigeRh(PAPEIS_ESCREVEM), validate({ params: idParams, body: atualizarColaboradorBody }), async (req, res) => {
-  const id = req.valid.params.id as string;
-  const b = req.valid.body as ReturnType<typeof atualizarColaboradorBody.parse>;
-  if (!(await prisma.rhColaborador.findUnique({ where: { id }, select: { id: true } }))) throw Errors.notFound('Colaborador não encontrado');
-  if (b.gestorId === id) throw Errors.validation([{ path: 'gestorId', message: 'O colaborador não pode ser o próprio gestor' }]);
-  if (b.gestorId && !(await prisma.rhColaborador.findUnique({ where: { id: b.gestorId }, select: { id: true } }))) throw Errors.validation([{ path: 'gestorId', message: 'Gestor não encontrado' }]);
-  const { nascimento, inicio, demissao, ...resto } = b;
-  const c = await prisma.rhColaborador.update({
-    where: { id },
-    data: {
-      ...resto,
-      ...(nascimento !== undefined ? { nascimento: nascimento ? dia(nascimento) : null } : {}),
-      ...(inicio !== undefined ? { inicio: inicio ? dia(inicio) : null } : {}),
-      ...(demissao !== undefined ? { demissao: demissao ? dia(demissao) : null } : {}),
-    },
-    include: comGestor,
-  });
-  if (demissao) {
-    // quem saiu perde o acesso ao sistema
-    const u = await prisma.usuario.findUnique({ where: { colaboradorId: id }, select: { id: true } });
-    if (u) {
-      await prisma.usuario.update({ where: { id: u.id }, data: { ativo: false } });
-      await prisma.sessao.updateMany({ where: { usuarioId: u.id, revogadaEm: null }, data: { revogadaEm: new Date() } });
-    }
-  }
-  await audit(req, 'rh.colaborador_atualizado', 'rh_colaborador', id, { campos: Object.keys(b) });
-  ok(res, serializarColaborador(c, { salario: true, pessoais: true }));
-});
-
-/** Promoção ou reajuste: grava o histórico e atualiza o salário (e cargo, se informado) do colaborador, numa transação. */
-colaboradoresRouter.post('/:id/movimentacoes', exigeRh(PAPEIS_ESCREVEM), validate({ params: idParams, body: movimentacaoBody }), async (req, res) => {
-  const id = req.valid.params.id as string;
-  const b = req.valid.body as ReturnType<typeof movimentacaoBody.parse>;
-  const mov = await prisma.$transaction(async (tx) => {
-    const c = await tx.rhColaborador.findUnique({ where: { id } });
-    if (!c) throw Errors.notFound('Colaborador não encontrado');
-    if (c.demissao) throw Errors.conflict('Colaborador desligado: não é possível registrar reajuste');
-    if (b.tipo === 'REAJUSTE' && b.salarioNovoCentavos === c.salarioCentavos) throw Errors.validation([{ path: 'salarioNovoCentavos', message: 'O salário novo é igual ao atual' }]);
-    const criada = await tx.rhMovimentacao.create({
-      data: {
-        colaboradorId: id,
-        tipo: b.tipo,
-        data: dia(b.data),
-        cargoAnterior: c.funcao ?? c.cargoBase,
-        cargoNovo: b.cargoNovo ?? null,
-        departamentoAnterior: c.departamento,
-        departamentoNovo: b.departamentoNovo ?? null,
-        senioridadeAnterior: c.senioridade,
-        senioridadeNova: b.senioridadeNova ?? null,
-        subnivelAnterior: c.subnivel,
-        subnivelNovo: b.subnivelNovo ?? null,
-        salarioAnteriorCentavos: c.salarioCentavos,
-        salarioNovoCentavos: b.salarioNovoCentavos,
-        obs: b.obs ?? null,
-      },
-    });
-    await tx.rhColaborador.update({
-      where: { id },
-      data: {
-        salarioCentavos: b.salarioNovoCentavos,
-        ...(b.cargoNovo ? { funcao: b.cargoNovo } : {}),
-        ...(b.departamentoNovo ? { departamento: b.departamentoNovo } : {}),
-        ...(b.senioridadeNova ? { senioridade: b.senioridadeNova } : {}),
-        ...(b.subnivelNovo ? { subnivel: b.subnivelNovo } : {}),
-      },
-    });
-    return criada;
-  });
-  await audit(req, 'rh.salario_alterado', 'rh_colaborador', id, { tipo: b.tipo, de: mov.salarioAnteriorCentavos, para: mov.salarioNovoCentavos, data: b.data });
-  created(res, mov);
-});
-
-colaboradoresRouter.delete('/:id', exigeRh(PAPEIS_ESCREVEM), validate({ params: idParams }), async (req, res) => {
-  // não se apaga pessoa com histórico de folha: desligue (PATCH demissao). Aqui só cadastros criados por engano, sem nada ligado.
-  const id = req.valid.params.id as string;
-  const c = await prisma.rhColaborador.findUnique({ where: { id }, include: { _count: { select: { rhFolhaItems: true, rhDocumentos: true, movimentacoes: true } } } });
-  if (!c) throw Errors.notFound('Colaborador não encontrado');
-  if (c._count.rhFolhaItems + c._count.rhDocumentos + c._count.movimentacoes > 0) throw Errors.conflict('Colaborador com histórico: registre o desligamento em vez de excluir');
-  await prisma.rhColaborador.delete({ where: { id } });
-  await audit(req, 'rh.colaborador_excluido', 'rh_colaborador', id);
-  noContent(res);
-});
-
-void escreve;
+// Salário, cargo, promoção, cadastro e desligamento NÃO se alteram aqui: a origem de verdade é o sistema do RH (Alexandre) e esta API só
+// espelha e monitora (ver rh.sync.ts). Por isso não há rotas de escrita de colaborador nem de movimentação salarial.

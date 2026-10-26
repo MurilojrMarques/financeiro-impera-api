@@ -102,50 +102,33 @@ describe('RH: permissões, salários, folha e documentos', () => {
     });
   });
 
-  describe('cadastro e salário (só RH altera)', () => {
-    it('somente o RH cria e edita; CEO e demais recebem 403', async () => {
-      const corpo = { nome: 'Novo Funcionário', departamento: 'Edição', salarioCentavos: 350000, email: 'novo@teste.local', inicio: '2026-10-01' };
-      expect((await request(app).post(api('/colaboradores')).set('Authorization', p.ceo!.token).send(corpo)).status).toBe(403);
-      expect((await request(app).post(api('/colaboradores')).set('Authorization', p.gestor!.token).send(corpo)).status).toBe(403);
-      const ok = await request(app).post(api('/colaboradores')).set('Authorization', p.rh!.token).send(corpo);
-      expect(ok.status).toBe(201);
-      expect(ok.body.data).toMatchObject({ nome: 'Novo Funcionário', salarioCentavos: 350000, ativo: true });
-      const edit = await request(app).patch(api(`/colaboradores/${ok.body.data.id}`)).set('Authorization', p.rh!.token).send({ funcao: 'Editor Jr', salarioCentavos: 999 });
-      expect(edit.status).toBe(200);
-      expect(edit.body.data.salarioCentavos).toBe(350000); // salário não muda por aqui
-      expect((await request(app).delete(api(`/colaboradores/${ok.body.data.id}`)).set('Authorization', p.rh!.token)).status).toBe(204);
+  describe('salário só se consulta (a origem é o sistema do RH)', () => {
+    it('não existe rota para criar, editar, excluir colaborador nem para reajustar salário aqui', async () => {
+      const id = p.b!.colabId;
+      for (const t of [p.rh!.token, p.ceo!.token]) {
+        expect((await request(app).post(api('/colaboradores')).set('Authorization', t).send({ nome: 'X', departamento: 'CS', salarioCentavos: 1 })).status).toBe(404);
+        expect((await request(app).patch(api(`/colaboradores/${id}`)).set('Authorization', t).send({ funcao: 'Y' })).status).toBe(404);
+        expect((await request(app).delete(api(`/colaboradores/${id}`)).set('Authorization', t)).status).toBe(404);
+        expect((await request(app).post(api(`/colaboradores/${id}/movimentacoes`)).set('Authorization', t).send({ tipo: 'REAJUSTE', data: '2026-10-15', salarioNovoCentavos: 999999 })).status).toBe(404);
+      }
+      expect((await get(`/colaboradores/${id}`, p.rh!.token)).body.data.salarioCentavos).toBe(400000); // nada mudou
     });
 
-    it('reajuste e promoção: grava o histórico e atualiza o salário; o CEO só consulta', async () => {
+    it('histórico de salário: RH/CEO e o próprio colaborador veem; gestor e colegas não', async () => {
       const id = p.b!.colabId;
-      const corpo = { tipo: 'REAJUSTE', data: '2026-10-15', salarioNovoCentavos: 450000, obs: 'mérito' };
-      expect((await request(app).post(api(`/colaboradores/${id}/movimentacoes`)).set('Authorization', p.ceo!.token).send(corpo)).status).toBe(403);
-      const r = await request(app).post(api(`/colaboradores/${id}/movimentacoes`)).set('Authorization', p.rh!.token).send(corpo);
-      expect(r.status).toBe(201);
-      expect(r.body.data).toMatchObject({ salarioAnteriorCentavos: 400000, salarioNovoCentavos: 450000, tipo: 'REAJUSTE' });
-      expect((await get(`/colaboradores/${id}`, p.rh!.token)).body.data.salarioCentavos).toBe(450000);
-      const promo = await request(app).post(api(`/colaboradores/${id}/movimentacoes`)).set('Authorization', p.rh!.token).send({ tipo: 'PROMOCAO', data: '2026-10-20', salarioNovoCentavos: 520000, cargoNovo: 'Dev Sr', senioridadeNova: 'sr' });
-      expect(promo.status).toBe(201);
+      // o histórico chega da origem pela sincronização; aqui entra direto para testar a consulta
+      await prisma.rhMovimentacao.createMany({
+        data: [
+          { colaboradorId: id, tipo: 'REAJUSTE', data: new Date('2026-10-15T00:00:00Z'), salarioAnteriorCentavos: 400000, salarioNovoCentavos: 450000 },
+          { colaboradorId: id, tipo: 'PROMOCAO', data: new Date('2026-10-20T00:00:00Z'), salarioAnteriorCentavos: 450000, salarioNovoCentavos: 520000, cargoNovo: 'Dev Sr' },
+        ],
+      });
+      await prisma.rhColaborador.update({ where: { id }, data: { salarioCentavos: 520000, funcao: 'Dev Sr', senioridade: 'sr' } });
       const hist = await get(`/colaboradores/${id}/movimentacoes`, p.ceo!.token);
       expect(hist.body.data.map((m: { salarioNovoCentavos: number }) => m.salarioNovoCentavos)).toEqual([520000, 450000]);
-      expect((await get(`/colaboradores/${id}`, p.b!.token)).body.data).toMatchObject({ funcao: 'Dev Sr', senioridade: 'sr', salarioCentavos: 520000 });
-      // salário igual ao atual não é reajuste
-      expect((await request(app).post(api(`/colaboradores/${id}/movimentacoes`)).set('Authorization', p.rh!.token).send({ tipo: 'REAJUSTE', data: '2026-10-21', salarioNovoCentavos: 520000 })).status).toBe(422);
-      // colaborador vê o próprio histórico
       expect((await get(`/colaboradores/${id}/movimentacoes`, p.b!.token)).status).toBe(200);
       expect((await get(`/colaboradores/${id}/movimentacoes`, p.a!.token)).status).toBe(404);
-    });
-
-    it('desligar o colaborador desativa o login dele', async () => {
-      const id = p.c!.colabId;
-      const r = await request(app).patch(api(`/colaboradores/${id}`)).set('Authorization', p.rh!.token).send({ demissao: '2026-10-25', motivoDemissao: 'voluntario' });
-      expect(r.status).toBe(200);
-      expect(r.body.data.ativo).toBe(false);
-      expect((await get('/colaboradores/eu', p.c!.token)).status).toBe(401); // sessão revogada
-      expect((await login('c@teste.local')).status).toBe(401);
-      await prisma.rhColaborador.update({ where: { id }, data: { demissao: null } });
-      await prisma.usuario.update({ where: { colaboradorId: id }, data: { ativo: true } });
-      p.c!.token = `Bearer ${(await login('c@teste.local')).body.data.accessToken}`;
+      expect((await get(`/colaboradores/${id}/movimentacoes`, p.gestor!.token)).status).toBe(403);
     });
   });
 

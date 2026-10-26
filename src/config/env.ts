@@ -78,6 +78,22 @@ const schema = z.object({
   UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(5 * 1024 * 1024),
   /** RH: fotos e documentos (NF, comprovantes). Fora do Git; faça backup desta pasta. */
   RH_STORAGE_DIR: z.string().default('./storage/rh'),
+  /** RH: origem de verdade dos salários e cargos = sistema do RH (MySQL na VPS, via túnel SSH). Somente leitura. */
+  RH_SSH_HOST: z.string().optional(),
+  RH_SSH_PORT: z.coerce.number().int().positive().default(22),
+  RH_SSH_USER: z.string().optional(),
+  RH_SSH_PASSWORD: z.string().optional(),
+  RH_SSH_KEY_PATH: z.string().optional(),
+  RH_SSH_KEY_PASSPHRASE: z.string().optional(),
+  RH_SSH_HOST_FINGERPRINT: z.string().optional(),
+  RH_MYSQL_HOST: z.string().default('127.0.0.1'),
+  RH_MYSQL_PORT: z.coerce.number().int().positive().default(3306),
+  RH_MYSQL_DATABASE: z.string().default('impera_rh'),
+  RH_MYSQL_USER: z.string().optional(),
+  RH_MYSQL_PASSWORD: z.string().optional(),
+  /** monitoramento contínuo: de quanto em quanto tempo a API confere se algo mudou na origem (a leitura completa só ocorre se mudou) */
+  RH_SYNC_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
+  RH_SYNC_INTERVAL_MINUTES: z.coerce.number().int().min(1).max(1440).default(5),
   RH_DOC_MAX_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
 
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().positive().default(10),

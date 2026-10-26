@@ -1,4 +1,5 @@
 import { prisma } from '../../config/database';
+import { businessDateString } from '../../shared/utils/dates';
 import type { RhMovimentacao } from '../../generated/prisma/client';
 
 /** Primeiro e último dia do mês (AAAA-MM), como datas UTC. */
@@ -56,4 +57,40 @@ export async function colaboradoresDoMes(competencia: string) {
     select: { id: true, nome: true, salarioCentavos: true, inicio: true, demissao: true, movimentacoes: { select: { data: true, salarioAnteriorCentavos: true, salarioNovoCentavos: true } } },
     orderBy: { nome: 'asc' },
   });
+}
+
+/** Cálculo de uma linha da folha: salário vigente no fim do mês, dias trabalhados (mês comercial) e valor proporcional. */
+export function calculoDoItem(
+  competencia: string,
+  p: { salarioCentavos: number; inicio: Date | null; demissao: Date | null; movimentacoes: Pick<RhMovimentacao, 'data' | 'salarioAnteriorCentavos' | 'salarioNovoCentavos'>[] },
+) {
+  const mensal = salarioNaData(p.salarioCentavos, p.movimentacoes, limitesDoMes(competencia).fim);
+  const dias = diasTrabalhadosNoMes(competencia, p.inicio, p.demissao);
+  return { salarioMensalCentavos: mensal, diasTrabalhados: dias, salarioCentavos: salarioProporcional(mensal, dias) };
+}
+
+/**
+ * Quando a origem muda um salário, a folha do mês corrente (se ainda ABERTA) acompanha: refaz salário e dias dessas pessoas e mantém
+ * comissão, bônus, desconto e pagamento. Folha fechada nunca é tocada. Devolve quantos itens mudaram.
+ */
+export async function recalcularFolhaAbertaDoMes(colaboradorIds: string[]): Promise<number> {
+  if (colaboradorIds.length === 0) return 0;
+  const competencia = businessDateString(new Date()).slice(0, 7);
+  const folha = await prisma.rhFolhaCompetencia.findUnique({ where: { competencia } });
+  if (!folha || folha.status !== 'ABERTA') return 0;
+  const itens = await prisma.rhFolhaItem.findMany({ where: { competenciaId: folha.id, colaboradorId: { in: colaboradorIds } } });
+  if (itens.length === 0) return 0;
+  const pessoas = await prisma.rhColaborador.findMany({
+    where: { id: { in: itens.map((i) => i.colaboradorId) } },
+    select: { id: true, salarioCentavos: true, inicio: true, demissao: true, movimentacoes: { select: { data: true, salarioAnteriorCentavos: true, salarioNovoCentavos: true } } },
+  });
+  let mudou = 0;
+  for (const p of pessoas) {
+    const item = itens.find((i) => i.colaboradorId === p.id)!;
+    const c = calculoDoItem(competencia, p);
+    if (c.salarioCentavos === item.salarioCentavos && c.diasTrabalhados === item.diasTrabalhados && c.salarioMensalCentavos === item.salarioMensalCentavos) continue;
+    mudou++;
+    await prisma.rhFolhaItem.update({ where: { id: item.id }, data: { ...c, totalCentavos: totalDoItem({ ...c, comissaoCentavos: item.comissaoCentavos, bonusCentavos: item.bonusCentavos, descontoCentavos: item.descontoCentavos }) } });
+  }
+  return mudou;
 }
