@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../../middlewares/auth.middleware';
 import { colaboradoresRouter } from './colaboradores.routes';
+import { comissoesRouter } from './comissoes.routes';
 import { documentosRouter } from './documentos.routes';
 import { folhaRouter } from './folha.routes';
 import { monitoramentoRouter } from './monitoramento.routes';
@@ -14,3 +15,4 @@ rhRouter.use('/', monitoramentoRouter);
 rhRouter.use('/colaboradores', colaboradoresRouter);
 rhRouter.use('/folha', folhaRouter);
 rhRouter.use('/documentos', documentosRouter);
+rhRouter.use('/comissoes', comissoesRouter);

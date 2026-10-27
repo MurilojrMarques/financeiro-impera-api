@@ -43,6 +43,9 @@ export const docListQuery = z.object({
 });
 
 export const docResumoQuery = z.object({ competencia: competenciaSchema });
+export const comissaoQuery = z.object({ competencia: competenciaSchema });
+export const comissaoVinculoBody = z.object({ copywriterId: z.string().uuid(), colaboradorId: z.string().uuid().nullable() });
+export const comissaoLancarBody = z.object({ competencia: competenciaSchema });
 
 export const docUploadBody = z.object({
   tipo: z.enum(['NOTA_FISCAL', 'COMPROVANTE_PAGAMENTO', 'CONTRATO', 'OUTRO']),

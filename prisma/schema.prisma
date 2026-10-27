@@ -644,6 +644,8 @@ model RhColaborador {
   descricao       String?
   obsCargo        String?
   discordUserId   String?
+  /// id do copywriter no sistema de copy (comissionamento): liga a comissão do Front a esta pessoa; definido pelo RH, a origem do RH não mexe
+  copywriterId    String?   @unique @db.Uuid
   /// foto guardada como arquivo (não mais base64 dentro do banco)
   fotoArquivo     String?
   /// SHA-256 da foto na origem: só regrava o arquivo quando ela muda
