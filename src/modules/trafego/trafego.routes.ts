@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '../../config/database';
 import { Prisma } from '../../generated/prisma/client';
+import { comissaoCopyNoPeriodo } from '../../integrations/copy-supabase/copy-comissao';
 import { investimentoNoPeriodo } from '../../integrations/redtrack/redtrack.client';
 import { authenticate } from '../../middlewares/auth.middleware';
 import { authorize, Roles } from '../../middlewares/authorization.middleware';
@@ -75,7 +76,7 @@ trafegoRouter.get('/resumo', validate({ query: filtrosSchema }), async (req, res
   // janela do dia do tráfego, alinhada ao RedTrack (ver janelaDeslocamentoMin); o investimento é pedido por data ao RedTrack
   const ini = new Date(f.deTs.getTime() + params.janelaDeslocamentoMin * 60_000);
   const fim = new Date(f.ateTsExcl.getTime() + params.janelaDeslocamentoMin * 60_000);
-  const [agg, inv] = await Promise.all([agregarFront(ini, fim, -params.janelaDeslocamentoMin), investimentoNoPeriodo(f.de, f.ate)]);
+  const [agg, inv, copy] = await Promise.all([agregarFront(ini, fim, -params.janelaDeslocamentoMin), investimentoNoPeriodo(f.de, f.ate), comissaoCopyNoPeriodo(f.de, f.ate)]);
   // Faturamento e pedidos: Pagah. O RedTrack fornece o investimento e serve de referência na conferência de fontes.
   const rt = inv.fonte === 'REDTRACK' && inv.faturamentoCentavos != null && inv.compras != null ? { faturamentoCentavos: inv.faturamentoCentavos as number, pedidos: inv.compras as number } : null;
   const pagah = { faturamentoCentavos: agg.faturamentoCentavos, pedidos: agg.compras };
@@ -101,7 +102,25 @@ trafegoRouter.get('/resumo', validate({ query: filtrosSchema }), async (req, res
 
   /** MC BR do RedTrack ((Front + Upsell 1 + Downsell 1 + Downsell 2) × 70% − investimento × 110%); null se o RedTrack estiver indisponível */
   const mcBr = inv.baseMcBrCentavos != null && inv.centavos !== null ? mcBrCentavos(inv.baseMcBrCentavos, inv.centavos) : null;
-  ok(res, { ...resumo, mcBrCentavos: mcBr, conferencia, avisos }, await metaFinanceira(f, { fonteInvestimento: inv.fonte, janelaTrafego: { inicio: ini.toISOString(), fim: fim.toISOString(), deslocamentoMin: params.janelaDeslocamentoMin } }));
+  /**
+   * ROAS e CPA do RedTrack (os que o tráfego usa para validar oferta e criativo): receita Front do RedTrack (inclui downsells, como o "Front Revenue" da plataforma) ÷ custo,
+   * e custo ÷ compras (convtype2). Os de `roasCentesimos`/`cpaCentavos` seguem sendo os da Pagah (faturamento e pedidos da Pagah ÷ investimento).
+   */
+  const redtrackDisponivel = inv.fonte === 'REDTRACK' && inv.centavos != null && inv.centavos > 0 && inv.faturamentoCentavos != null;
+  const roasRedtrack = redtrackDisponivel ? Math.round(((inv.faturamentoCentavos as number) + (inv.downsellsCentavos ?? 0)) * 100 / (inv.centavos as number)) : null;
+  const cpaRedtrack = inv.fonte === 'REDTRACK' && inv.centavos != null && inv.compras ? Math.round(inv.centavos / inv.compras) : null;
+  /** comissão do Front = a do sistema de copy (5% do MC BR de cada pessoa); sem detalhe por pessoa aqui */
+  const comissaoCopy = copy.disponivel
+    ? { disponivel: true as const, comissaoCentavos: copy.comissaoCentavos, aPagarCentavos: copy.aPagarCentavos, estado: copy.estado, pessoas: copy.pessoas.length }
+    : { disponivel: false as const, motivo: copy.motivo, mensagem: copy.mensagem };
+  ok(res, { ...resumo, roasRedtrackCentesimos: roasRedtrack, cpaRedtrackCentavos: cpaRedtrack, mcBrCentavos: mcBr, comissaoCopy, conferencia, avisos }, await metaFinanceira(f, { fonteInvestimento: inv.fonte, janelaTrafego: { inicio: ini.toISOString(), fim: fim.toISOString(), deslocamentoMin: params.janelaDeslocamentoMin } }));
+});
+
+/** Comissão do Front por pessoa, como o sistema de copy apura (5% do MC BR). Dinheiro de pessoas: só FINANCEIRO ou acima. */
+trafegoRouter.get('/comissao-copy', authorize(Roles.FINANCEIRO), validate({ query: filtrosSchema }), async (req, res) => {
+  const f = resolverFiltro(req.valid.query);
+  await audit(req, 'COMISSAO_COPY_CONSULTADA', 'comissao-copy', `${f.de}..${f.ate}`, {});
+  ok(res, await comissaoCopyNoPeriodo(f.de, f.ate));
 });
 
 trafegoRouter.get('/parametros', async (_req, res) => {

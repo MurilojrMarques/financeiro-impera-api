@@ -167,7 +167,7 @@ export const ROUTES: RouteDoc[] = [
   // ── RedTrack e campanhas
   r('get', '/redtrack/conversoes', 'RedTrack', 'Conversões sincronizadas', ANALISE, { query: S.redtrack, paginado: true }),
   rel('/redtrack/conciliacao', 'RedTrack', 'Cobertura da conciliação Pagah × RedTrack'),
-  r('get', '/redtrack/divergencias', 'RedTrack', 'Divergências (sem venda / payout ≠ comissão)', ANALISE, { query: S.redtrack, paginado: true }),
+  r('get', '/redtrack/divergencias', 'RedTrack', 'Divergências (sem venda / payout ≠ líquido a receber)', ANALISE, { query: S.redtrack, paginado: true }),
   rel('/campanhas', 'Campanhas', 'Por campanha'),
   rel('/campanhas/resumo', 'Campanhas', 'Resumo e cobertura de campanha'),
   rel('/campanhas/por-anuncio', 'Campanhas', 'Por anúncio'),

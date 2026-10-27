@@ -67,7 +67,10 @@ const schema = z.object({
   SYNC_ENABLED: bool.default(true),
   // Sincronização automática DENTRO da API (sem processo separado): a cada N minutos, e na subida se estiver velha
   AUTO_SYNC_ENABLED: bool.default(true),
+  /** ciclo completo (RedTrack, que pode ser de hora em hora, e rede de segurança do EVENTOS) */
   AUTO_SYNC_INTERVAL_MINUTES: z.coerce.number().int().min(5).max(1440).default(60),
+  /** Pagah (aba EVENTOS, que a planilha atualiza a cada minuto): de quantos em quantos segundos a API lê só o que chegou de novo */
+  AUTO_SYNC_EVENTOS_INTERVAL_SECONDS: z.coerce.number().int().min(30).max(3600).default(120),
   AUTO_SYNC_STARTUP_DELAY_SECONDS: z.coerce.number().int().min(0).max(600).default(20),
   SYNC_EVENTOS_INTERVAL_SECONDS: z.coerce.number().int().min(10).default(60),
   SYNC_REDTRACK_INTERVAL_SECONDS: z.coerce.number().int().min(30).default(1800),
@@ -94,6 +97,10 @@ const schema = z.object({
   /** monitoramento contínuo: de quanto em quanto tempo a API confere se algo mudou na origem (a leitura completa só ocorre se mudou) */
   RH_SYNC_ENABLED: z.enum(['true', 'false']).default('true').transform((v) => v === 'true'),
   RH_SYNC_INTERVAL_MINUTES: z.coerce.number().int().min(1).max(1440).default(5),
+  /** Comissão do Front = a do sistema de copy (Supabase do comissionamento, SOMENTE LEITURA). String do POOLER (IPv4); sem ela a comissão do Front fica "em implementação". */
+  SUPABASE_DB_URL_POOLER: z.string().optional(),
+  /** CA pública do Supabase, para verificar o certificado da conexão (nunca aceitamos sem verificar) */
+  COPY_DB_CA_FILE: z.string().default('./certs/supabase-prod-ca-2021.crt'),
   RH_DOC_MAX_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
 
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().positive().default(10),

@@ -73,6 +73,8 @@ export function eventoParaFato(row: EventoRow, linha: number, valorVendaRef: num
           checkout: row.checkout,
           metodo: normalizarMetodo(row.metodo),
           vendedorId: row.payload.vendedorId,
+          // a taxa do pedido é a do evento de PAGAMENTO; nos eventos de perda o valor é o da reversão e não a define
+          taxaCallCenterCentavos: tipo === 'PAGAMENTO' ? row.payload.taxaCallCenterCentavos : null,
           clienteHash: row.cliente_id,
           canalPlanilha: row.canal,
           subcanal: row.subcanal,

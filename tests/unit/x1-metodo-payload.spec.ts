@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extrairVendedorDoPayload, normalizarMetodo } from '../../src/integrations/google-sheets/google-sheets.schemas';
+import { extrairDoPayload, extrairVendedorDoPayload, normalizarMetodo } from '../../src/integrations/google-sheets/google-sheets.schemas';
 import { ATRIBUTOS_VAZIOS, type Atributos } from '../../src/modules/vendas/domain/venda.aggregator';
 import { ehX1, isCriterioX1, type CriterioX1 } from '../../src/modules/vendas/domain/x1';
 
@@ -50,6 +50,17 @@ describe('payload: extrai só o id do vendedor e descarta todo o resto (dados pe
   const PAYLOAD = JSON.stringify({
     id_user_venda: 889739, cliente_cpf: '000.000.000-00', cliente_email: 'x@y.z', cliente_nome: 'Fulano', cliente_telefone: '1', cliente_endereco: 'Rua',
     url_origem: '/checkout/v2/pedido/TOKEN-SECRETO', pix_copia_cola: 'PIXSECRETO',
+  });
+
+  it('valor_taxa_callcenter (centavos) é lido; ausente, vazio ou inválido = null; zero explícito é dado', () => {
+    expect(extrairDoPayload('{"valor_taxa_callcenter": 6000}').taxaCallCenterCentavos).toBe(6000);
+    expect(extrairDoPayload('{"valor_taxa_callcenter": "9600"}').taxaCallCenterCentavos).toBe(9600);
+    expect(extrairDoPayload('{"valor_taxa_callcenter": 0}').taxaCallCenterCentavos).toBe(0);
+    expect(extrairDoPayload('{"valor_taxa_callcenter": ""}').taxaCallCenterCentavos).toBeNull();
+    expect(extrairDoPayload('{"valor_taxa_callcenter": "abc"}').taxaCallCenterCentavos).toBeNull();
+    expect(extrairDoPayload('{"valor_taxa_callcenter": -5}').taxaCallCenterCentavos).toBeNull();
+    expect(extrairDoPayload('{"outro": 1}').taxaCallCenterCentavos).toBeNull();
+    expect(JSON.stringify(extrairDoPayload(PAYLOAD))).not.toMatch(/000\.000|x@y|Fulano|TOKEN|PIXSECRETO|Rua/);
   });
 
   it('devolve apenas { vendedorId }', () => {

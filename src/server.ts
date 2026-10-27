@@ -1,6 +1,7 @@
 import type { Server } from 'node:http';
 import { createApp } from './app';
 import { checkDatabase, closeDatabase } from './config/database';
+import { fecharCopy } from './integrations/copy-supabase/copy-comissao';
 import { env } from './config/env';
 import { logger } from './config/logger';
 import { iniciarSyncAutomatica } from './jobs/auto-sync';
@@ -26,7 +27,7 @@ async function main(): Promise<void> {
     // para de aceitar conexões, aguarda as em andamento e fecha o banco
     void Promise.allSettled([syncAuto?.parar(), rhSync?.parar()]).finally(() =>
       server.close(() => {
-        closeDatabase().finally(() => process.exit(0));
+        Promise.allSettled([closeDatabase(), fecharCopy()]).finally(() => process.exit(0));
       }),
     );
     setTimeout(() => process.exit(1), 15_000).unref();

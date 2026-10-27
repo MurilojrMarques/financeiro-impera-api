@@ -1,7 +1,7 @@
 import request from 'supertest';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeDatabase, prisma } from '../../src/config/database';
-import { cicloAutomatico } from '../../src/jobs/auto-sync';
+import { cicloAutomatico, cicloEventos } from '../../src/jobs/auto-sync';
 import { SyncBusyError, type ResumoSync } from '../../src/modules/sincronizacao/sync.service';
 import type { FonteDadoTipo } from '../../src/generated/prisma/client';
 import { app, resetDb, tokenDe } from '../helpers/db';
@@ -49,11 +49,26 @@ describe('sincronização automática', () => {
     await expect(cicloAutomatico(ocupado)).rejects.toBeInstanceOf(SyncBusyError);
   });
 
+  it('leitura frequente da Pagah: só EVENTOS em INCREMENTAL; antes da primeira importação não faz nada (isso é do ciclo completo)', async () => {
+    const sync = executor();
+    expect(await cicloEventos(sync)).toBeNull();
+    expect(sync.executar).not.toHaveBeenCalled();
+    await marcarSucesso('EVENTOS');
+    const r = await cicloEventos(sync);
+    expect(sync.executar.mock.calls).toEqual([[['EVENTOS'], 'INCREMENTAL', 'auto:eventos']]);
+    expect(r?.fonte).toBe('EVENTOS');
+  });
+
+  it('leitura frequente com sincronização em andamento: propaga SyncBusyError (o agendador adia sem erro)', async () => {
+    await marcarSucesso('EVENTOS');
+    await expect(cicloEventos({ executar: vi.fn(async () => { throw new SyncBusyError(); }) })).rejects.toBeInstanceOf(SyncBusyError);
+  });
+
   it('o status informa a configuração da sincronização automática a quem consulta o painel', async () => {
     const leitura = await tokenDe('LEITURA');
     const r = await request(app).get('/api/v1/integracoes/sheets/status').set('Authorization', leitura);
     expect(r.status).toBe(200);
-    expect(r.body.data.sincronizacaoAutomatica).toMatchObject({ ativa: false, intervaloMinutos: 60, proximaEm: null });
+    expect(r.body.data.sincronizacaoAutomatica).toMatchObject({ ativa: false, intervaloMinutos: 60, eventosIntervaloSegundos: 120, proximaEm: null });
     expect(r.body.data.limiteDesatualizadoSegundos).toBe(300); // desligada nos testes
   });
 });

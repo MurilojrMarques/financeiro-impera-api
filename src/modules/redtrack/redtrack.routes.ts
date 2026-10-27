@@ -73,17 +73,17 @@ redtrackRouter.get('/divergencias', validate({ query: redtrackQuery }), async (r
       SELECT COUNT(*)::bigint AS n FROM redtrack_conversoes r LEFT JOIN vendas v ON v.id = r."vendaId"
       WHERE r."vendaId" IS NULL OR (r."payoutCentavos" IS NOT NULL AND v."comissaoCentavos" IS NOT NULL AND NOT v.x1 AND r."payoutCentavos" <> v."comissaoCentavos")`),
     prisma.$queryRaw<
-      { pedido: string; tipo: string; payout: number | null; comissao: number | null; situacao: string | null }[]
+      { pedido: string; tipo: string; payout: number | null; liquido: number | null; situacao: string | null }[]
     >(Prisma.sql`
-      SELECT r.pedido, CASE WHEN r."vendaId" IS NULL THEN 'SEM_VENDA' ELSE 'PAYOUT_DIFERENTE_DA_COMISSAO' END AS tipo,
-             r."payoutCentavos" AS payout, v."comissaoCentavos" AS comissao, r.situacao
+      SELECT r.pedido, CASE WHEN r."vendaId" IS NULL THEN 'SEM_VENDA' ELSE 'PAYOUT_DIFERENTE_DO_LIQUIDO' END AS tipo,
+             r."payoutCentavos" AS payout, v."comissaoCentavos" AS liquido, r.situacao
       FROM redtrack_conversoes r LEFT JOIN vendas v ON v.id = r."vendaId"
       WHERE r."vendaId" IS NULL OR (r."payoutCentavos" IS NOT NULL AND v."comissaoCentavos" IS NOT NULL AND NOT v.x1 AND r."payoutCentavos" <> v."comissaoCentavos")
       ORDER BY r.pedido LIMIT ${limit} OFFSET ${(page - 1) * limit}`),
   ]);
   paginated(
     res,
-    rows.map((r) => ({ pedido: r.pedido, tipo: r.tipo, payoutCentavos: r.payout, comissaoCentavos: r.comissao, situacao: r.situacao })),
+    rows.map((r) => ({ pedido: r.pedido, tipo: r.tipo, payoutCentavos: r.payout, liquidoReceberCentavos: r.liquido, situacao: r.situacao })),
     pageMeta(page, limit, Number(total[0]?.n ?? 0)),
   );
 });

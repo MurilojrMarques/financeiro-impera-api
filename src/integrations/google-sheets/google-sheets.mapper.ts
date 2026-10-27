@@ -39,7 +39,7 @@ export const DEFAULT_FIELDS: Record<TabKey, Record<string, FieldSpec>> = {
     canal: { aliases: ['canal'], required: false },
     subcanal: { aliases: ['subcanal', 'sub_canal'], required: false },
     origem_lead: { aliases: ['origem_lead', 'origem_do_lead'], required: false },
-    // lido apenas para extrair id_user_venda; o restante do JSON é descartado (ver extrairVendedorDoPayload)
+    // lido apenas para extrair id_user_venda e valor_taxa_callcenter; o restante do JSON é descartado (ver extrairVendedorDoPayload)
     payload: { aliases: ['payload_sem_dados_pessoais', 'payload'], required: false },
   },
   HISTORICO: {

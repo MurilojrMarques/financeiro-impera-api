@@ -62,6 +62,9 @@ sincronizacaoRouter.get('/status', authorize(Roles.LEITURA), async (req, res) =>
     sincronizacaoAutomatica: {
       ativa: estadoSyncAutomatica.ativa,
       intervaloMinutos: env.AUTO_SYNC_INTERVAL_MINUTES,
+      eventosIntervaloSegundos: env.AUTO_SYNC_EVENTOS_INTERVAL_SECONDS,
+      eventosUltimaEm: estadoSyncAutomatica.eventosUltimaEm,
+      eventosUltimoResultado: estadoSyncAutomatica.eventosUltimoResultado,
       proximaEm: estadoSyncAutomatica.proximaEm,
       ultimaTentativaEm: estadoSyncAutomatica.ultimaTentativaEm,
       ultimoResultado: estadoSyncAutomatica.ultimoResultado,

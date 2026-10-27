@@ -9,3 +9,4 @@ process.env.RATE_LIMIT_LOGIN_MAX = '20';
 process.env.UPLOAD_DIR = './storage-test/anexos';
 process.env.RH_STORAGE_DIR = './storage-test/rh';
 process.env.RH_SYNC_ENABLED = 'false'; // nos testes ninguém consulta o MySQL do RH
+process.env.SUPABASE_DB_URL_POOLER = ''; // nos testes ninguém consulta o Supabase do copy

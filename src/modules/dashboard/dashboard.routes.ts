@@ -12,6 +12,7 @@ import { tsz } from '../../shared/utils/sql';
 import { comparativoHandler, construirAlertas, dimensaoHandler, formatar, metaFinanceira, relatorio } from '../../shared/services/relatorio.service';
 import { filtrosBase, filtrosSchema, refinarPeriodo, resolverFiltro, type FiltrosQuery } from '../../shared/validators/filtros';
 import { totais } from '../../shared/repositories/ledger.repository';
+import { comissaoCopyNoPeriodo } from '../../integrations/copy-supabase/copy-comissao';
 import { investimentoNoPeriodo } from '../../integrations/redtrack/redtrack.client';
 import { mcBrCentavos } from '../trafego/trafego.domain';
 import { distribuicaoReceitas, indicadores, kpis, receitasPorGrupo } from './dashboard.service';
@@ -38,22 +39,29 @@ dashboardRouter.get('/distribuicao-receitas', q, relatorio((f) => distribuicaoRe
 dashboardRouter.get('/receitas-por-grupo', q, relatorio((f) => receitasPorGrupo(f)));
 dashboardRouter.get('/receitas-por-loja', q, dimensaoHandler('loja'));
 /**
- * Investimento em tráfego (RedTrack), ROAS TOTAL da operação (receita total de todos os grupos ÷ investimento) e COMISSÃO total (Front + Call Center + Recuperação + Afiliados).
+ * Investimento em tráfego (RedTrack), ROAS TOTAL da operação (receita total de todos os grupos ÷ investimento) e COMISSÃO total (Call Center + Recuperação + Afiliados; a do Front vem do sistema de copy) e o MC BR (margem, fora da comissão).
  * Só o período vale aqui: os outros filtros (loja, grupo...) não se aplicam ao investimento, então também não entram na receita.
  */
 dashboardRouter.get('/trafego', authorize(Roles.ANALISE), q, relatorio(async (f, req) => {
   const base = resolverFiltro(filtrosBase.parse({ de: req.valid.query.de, ate: req.valid.query.ate, modo: req.valid.query.modo }));
   const doGrupo = (grupo: 'CALL_CENTER' | 'RECUPERACAO') => totais(resolverFiltro(filtrosBase.parse({ de: req.valid.query.de, ate: req.valid.query.ate, modo: req.valid.query.modo, grupo })));
-  const [inv, m, cc, rec] = await Promise.all([investimentoNoPeriodo(f.de, f.ate), totais(base), doGrupo('CALL_CENTER'), doGrupo('RECUPERACAO')]);
-  // Comissão: Front = MC BR (RedTrack); Call Center = 20% e Recuperação = (valor × 0,70) × 5%, ambos do líquido (já no ledger). Afiliados = o que os afiliados recebem (regra/valor por afiliado). Só Backend Outros ainda não tem comissão.
-  const comissaoFront = inv.baseMcBrCentavos != null && inv.centavos !== null ? mcBrCentavos(inv.baseMcBrCentavos, inv.centavos) : null;
+  const [inv, m, cc, rec, copy] = await Promise.all([investimentoNoPeriodo(f.de, f.ate), totais(base), doGrupo('CALL_CENTER'), doGrupo('RECUPERACAO'), comissaoCopyNoPeriodo(f.de, f.ate)]);
+  // MC BR é a margem que sobra para a empresa, NÃO é comissão. A comissão do Front é a do sistema de copy (5% do MC BR de cada pessoa), lida de lá.
+  // Call Center = 20% e Recuperação = (valor × 0,70) × 5%, ambos do líquido (já no ledger). Afiliados = o que os afiliados recebem (regra/valor por afiliado). Backend Outros ainda não tem comissão.
+  const mcBr = inv.baseMcBrCentavos != null && inv.centavos !== null ? mcBrCentavos(inv.baseMcBrCentavos, inv.centavos) : null;
   return {
     investimentoCentavos: inv.centavos,
-    comissaoFrontCentavos: comissaoFront,
+    mcBrCentavos: mcBr,
+    comissaoFrontCentavos: copy.disponivel ? copy.comissaoCentavos : null,
+    comissaoFrontAPagarCentavos: copy.disponivel ? copy.aPagarCentavos : null,
+    comissaoFrontEstado: copy.disponivel ? copy.estado : null,
+    comissaoFrontMensagem: copy.disponivel ? null : copy.mensagem,
     comissaoCallCenterCentavos: cc.comissaoCentavos,
     comissaoRecuperacaoCentavos: rec.comissaoCentavos,
     comissaoAfiliadosCentavos: m.comissaoAfiliadoCentavos,
-    comissaoTotalCentavos: comissaoFront === null ? null : comissaoFront + m.comissaoCentavos + m.comissaoAfiliadoCentavos,
+    comissaoTotalCentavos: m.comissaoCentavos + m.comissaoAfiliadoCentavos + (copy.disponivel ? copy.comissaoCentavos : 0),
+    /** true = a comissão do Front não entrou no total (sistema de copy indisponível ou período não apurável) */
+    comissaoTotalSemFront: !copy.disponivel,
     receitaTotalCentavos: m.receitaCentavos,
     roasTotalCentesimos: inv.centavos ? Math.round((m.receitaCentavos * 100) / inv.centavos) : null,
     fonteInvestimento: inv.fonte,

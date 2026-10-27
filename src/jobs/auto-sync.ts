@@ -17,6 +17,10 @@ export interface EstadoSyncAutomatica {
   proximaEm: Date | null;
   ultimaTentativaEm: Date | null;
   ultimoResultado: 'SUCESSO' | 'ERRO' | 'OCUPADO' | null;
+  /** leitura frequente da Pagah (EVENTOS) */
+  eventosIntervaloSegundos: number;
+  eventosUltimaEm: Date | null;
+  eventosUltimoResultado: 'SUCESSO' | 'ERRO' | 'OCUPADO' | null;
 }
 
 /** Estado exposto em /integracoes/sheets/status (a tela "Integrações" mostra a próxima execução automática). */
@@ -26,6 +30,9 @@ export const estadoSyncAutomatica: EstadoSyncAutomatica = {
   proximaEm: null,
   ultimaTentativaEm: null,
   ultimoResultado: null,
+  eventosIntervaloSegundos: env.AUTO_SYNC_EVENTOS_INTERVAL_SECONDS,
+  eventosUltimaEm: null,
+  eventosUltimoResultado: null,
 };
 
 type Executor = Pick<SyncService, 'executar'>;
@@ -47,6 +54,16 @@ export async function cicloAutomatico(sync: Executor): Promise<ResumoSync[]> {
   const incrementais = (['EVENTOS', 'REDTRACK'] as const).filter((f) => !pendentes.includes(f));
   if (incrementais.length > 0) resultados.push(...(await sync.executar(incrementais, 'INCREMENTAL', 'auto')));
   return resultados;
+}
+
+/**
+ * Leitura frequente da Pagah: só o EVENTOS, em modo INCREMENTAL (o que chegou desde a última leitura). Não faz a importação inicial
+ * (isso é do ciclo completo) nem mexe no RedTrack. Devolve null quando o EVENTOS ainda não teve sucesso.
+ */
+export async function cicloEventos(sync: Executor): Promise<ResumoSync | null> {
+  if (!(await temSucesso('EVENTOS'))) return null;
+  const [r] = await sync.executar(['EVENTOS'], 'INCREMENTAL', 'auto:eventos');
+  return r ?? null;
 }
 
 /** Mantém as estatísticas do planner em dia (depois de cargas grandes o Postgres pode escolher planos ruins) e aquece o cache do RedTrack. */
@@ -78,12 +95,30 @@ async function executarCiclo(sync: Executor): Promise<void> {
   }
 }
 
+async function executarCicloEventos(sync: Executor): Promise<void> {
+  estadoSyncAutomatica.eventosUltimaEm = new Date();
+  try {
+    const r = await cicloEventos(sync);
+    estadoSyncAutomatica.eventosUltimoResultado = !r || r.status !== 'FALHA' ? 'SUCESSO' : 'ERRO';
+    // depois de uma carga grande o planner precisa de estatísticas novas; nas leituras pequenas isso seria desperdício
+    if (r && r.inseridos + r.atualizados > 1000) await manutencaoPosSync();
+    if (r && r.inseridos + r.atualizados > 0) logger.info({ lidos: r.lidos, inseridos: r.inseridos, atualizados: r.atualizados }, 'Pagah: novos eventos sincronizados');
+  } catch (err) {
+    if (err instanceof SyncBusyError) {
+      estadoSyncAutomatica.eventosUltimoResultado = 'OCUPADO';
+      return;
+    }
+    estadoSyncAutomatica.eventosUltimoResultado = 'ERRO';
+    logger.error({ msg: sanitizeError(err) }, 'leitura frequente da Pagah falhou');
+  }
+}
+
 export interface SyncAutomatica {
   parar: () => Promise<void>;
 }
 
 /**
- * Liga a sincronização automática: a cada AUTO_SYNC_INTERVAL_MINUTES (padrão 60) e, na subida da API, se a última tiver sido há mais
+ * Liga a sincronização automática: ciclo completo a cada AUTO_SYNC_INTERVAL_MINUTES (padrão 60; RedTrack) + leitura da Pagah a cada AUTO_SYNC_EVENTOS_INTERVAL_SECONDS (padrão 120) e, na subida da API, se a última tiver sido há mais
  * tempo que o intervalo (a máquina pode ter ficado desligada). Também faz a reconciliação completa diária (SYNC_RECONCILE_TIME).
  * A sincronização manual da tela "Integrações" continua disponível e usa o mesmo lock.
  */
@@ -118,6 +153,8 @@ export function iniciarSyncAutomatica(): SyncAutomatica | null {
       await executarCiclo(sync);
     },
   });
+  // Pagah quase em tempo real: lê só o que chegou de novo (RedTrack continua no ciclo completo acima)
+  scheduler.add({ name: 'sync-eventos-automatica', intervalMs: env.AUTO_SYNC_EVENTOS_INTERVAL_SECONDS * 1000, run: () => executarCicloEventos(sync) });
   scheduler.add({ name: 'reconciliacao-diaria', intervalMs: 5 * 60_000, run: reconciliationJob(sync) });
 
   // atualização imediata na subida se os dados estiverem velhos (ou nunca sincronizados)
@@ -135,7 +172,7 @@ export function iniciarSyncAutomatica(): SyncAutomatica | null {
   }, env.AUTO_SYNC_STARTUP_DELAY_SECONDS * 1000);
   partida.unref();
 
-  logger.info({ intervaloMinutos: env.AUTO_SYNC_INTERVAL_MINUTES, reconciliacao: env.SYNC_RECONCILE_TIME }, 'sincronização automática ligada');
+  logger.info({ intervaloMinutos: env.AUTO_SYNC_INTERVAL_MINUTES, eventosSegundos: env.AUTO_SYNC_EVENTOS_INTERVAL_SECONDS, reconciliacao: env.SYNC_RECONCILE_TIME }, 'sincronização automática ligada');
   return {
     parar: async () => {
       clearTimeout(partida);

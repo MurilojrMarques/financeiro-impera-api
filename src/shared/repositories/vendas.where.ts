@@ -69,13 +69,16 @@ type VendaLista = Prisma.VendaGetPayload<{ select: typeof vendaListSelect }>;
  * a menos que a visão administrativa explícita (`incluirX1`) tenha sido autorizada.
  */
 export function serializarVenda(v: VendaLista, mostrarX1Real: boolean) {
-  const { loja, afiliado, comissaoCentavos: _colunaPlanilha, ...resto } = v;
+  const { loja, afiliado, comissaoCentavos: colunaPlanilha, ...resto } = v;
   void mostrarX1Real;
+  // a coluna "comissão" da planilha é o líquido que a Impera recebe da Pagah; só vale quando veio da planilha (não do payout do RedTrack)
+  const liquidoReceber = v.comissaoFonte === 'PAGAH' || v.comissaoFonte === 'HISTORICO_EXATA' ? colunaPlanilha : null;
   const comissaoPadrao = comissaoDaVenda(v.grupo, v.valorVendaCentavos, v.perdaCentavos);
   return {
     ...resto,
     loja: loja?.nome ?? null,
     afiliado: afiliado ?? null,
     comissaoCentavos: comissaoPadrao,
+    liquidoReceberCentavos: liquidoReceber,
   };
 }

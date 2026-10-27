@@ -112,7 +112,8 @@ describe('otimização e segurança de rede', () => {
       expect((await request(app).get(api(`/dashboard/trafego?${Q}`)).set('Authorization', leitura)).status).toBe(403);
       const r = await request(app).get(api(`/dashboard/trafego?${Q}`)).set('Authorization', analista);
       expect(r.status).toBe(200);
-      expect(r.body.data).toMatchObject({ investimentoCentavos: null, roasTotalCentesimos: null, comissaoFrontCentavos: null, comissaoTotalCentavos: null, fonteInvestimento: 'NAO_CONFIGURADO' });
+      expect(r.body.data).toMatchObject({ investimentoCentavos: null, roasTotalCentesimos: null, mcBrCentavos: null, comissaoFrontCentavos: null, fonteInvestimento: 'NAO_CONFIGURADO' });
+      expect(r.body.data.comissaoTotalSemFront).toBe(true); // sem o sistema de copy a comissão do Front não entra no total (e isso é dito)
       expect(typeof r.body.data.comissaoCallCenterCentavos).toBe('number');
       expect(typeof r.body.data.comissaoRecuperacaoCentavos).toBe('number');
       expect(typeof r.body.data.comissaoAfiliadosCentavos).toBe('number'); // o Call Center (20%) não depende do RedTrack

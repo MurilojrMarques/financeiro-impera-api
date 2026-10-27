@@ -297,6 +297,19 @@ describe('sincronização Google Sheets -> PostgreSQL', () => {
     expect(tudo).not.toMatch(/CPF-SECRETO|segredo@pessoal|NOME-SECRETO|TOKEN-SECRETO/);
   });
 
+  it('valor_taxa_callcenter do payload vira a taxa do pedido (só do PAGAMENTO; a reversão do estorno não a redefine; zero é dado)', async () => {
+    const payload = (taxa: number | null) => JSON.stringify({ id_user_venda: 5, cliente_nome: 'NOME-SECRETO', ...(taxa === null ? {} : { valor_taxa_callcenter: taxa }) });
+    const { sheets, sync } = setup(100, 5);
+    sheets.addEvento(pagamento('T1', { valor_sem_juros: '300,00', payload_sem_dados_pessoais: payload(6000) }));
+    sheets.addEvento(pagamento('T1', { evento: 'estorno', valor_sem_juros: '300,00', recebido_em: '10/10/2026 09:00:00', payload_sem_dados_pessoais: payload(1234) }));
+    sheets.addEvento(pagamento('T2', { valor_sem_juros: '300,00', payload_sem_dados_pessoais: payload(0) }));
+    sheets.addEvento(pagamento('T3', { valor_sem_juros: '300,00', payload_sem_dados_pessoais: payload(null) }));
+    await sync.executar(['EVENTOS'], 'INICIAL');
+    const taxa = Object.fromEntries((await prisma.venda.findMany()).map((v) => [v.pedido, v.taxaCallCenterCentavos]));
+    expect(taxa).toEqual({ T1: 6000, T2: 0, T3: null });
+    expect(JSON.stringify([await prisma.venda.findMany(), await prisma.registroImportado.findMany()])).not.toMatch(/NOME-SECRETO/);
+  });
+
   it('método de pagamento padronizado entre HISTORICO ("Cartão") e EVENTOS ("cartao")', async () => {
     const { sheets, sync } = setup(100, 5);
     sheets.addEvento(pagamento('M1', { metodo: 'cartao' }));

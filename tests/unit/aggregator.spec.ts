@@ -9,7 +9,7 @@ const eventoBase: EventoRow = {
   pedido: '1001', evento: 'pagamento', recebido_em: dt('2026-10-05T13:00:00Z'), pago_em: dt('2026-10-05T13:00:00Z'),
   tipo: 'front', cliente_id: null, canal: null, subcanal: null, origem_lead: null, afiliado: null, loja: 'Loja A', checkout: 'ck1', produto: 'Kit 3', valor_total: 31000, valor_sem_juros: 29700,
   valor_liquido: null, comissao: 18000, comissao_fonte: 'estimada', metodo: 'cartao', parcelas: 3, utm_source: null,
-  utm_campaign: null, utm_content: null, src: null, teste: false, payload: { vendedorId: null },
+  utm_campaign: null, utm_content: null, src: null, teste: false, payload: { vendedorId: null, taxaCallCenterCentavos: null },
 };
 const histBase: HistoricoRow = {
   pedido: '1001', status: 'Pago', data_criacao: dt('2026-10-05T12:50:00Z'), data_pagamento: dt('2026-10-05T13:00:00Z'), data_estorno: null,

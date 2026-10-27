@@ -65,6 +65,8 @@ describe('tráfego: faturamento Front, frete por remessa e janela de datas', () 
     const d = (await get('/trafego/resumo?de=2026-10-19&ate=2026-10-19')).body;
     expect(d.data.investimentoCentavos).toBeNull();
     expect(d.data.roasCentesimos).toBeNull();
+    expect(d.data.roasRedtrackCentesimos).toBeNull();
+    expect(d.data.cpaRedtrackCentavos).toBeNull();
     expect(d.data.sobraCentavos).toBeNull();
     expect(d.meta.fonteInvestimento).toBe('NAO_CONFIGURADO');
     expect(d.data.avisos.join(' ')).toMatch(/RedTrack/);

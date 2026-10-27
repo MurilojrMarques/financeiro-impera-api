@@ -86,15 +86,29 @@ export function mapFonteComissao(raw: string | null): { fonte: FonteComissao; re
  * e só `id_user_venda` (id do vendedor/operador, sem dado pessoal) é extraído; todo o resto é descartado aqui mesmo.
  */
 export function extrairVendedorDoPayload(raw: string | null): { vendedorId: string | null } {
+  return { vendedorId: extrairDoPayload(raw).vendedorId };
+}
+
+/**
+ * Do payload sai só o que não é dado pessoal: `id_user_venda` e `valor_taxa_callcenter` (a taxa de 20% do Call Center, já calculada pela
+ * Pagah, em centavos). Ausente/inválido = null (ausente não é zero; zero explícito é um dado).
+ */
+export function extrairDoPayload(raw: string | null): { vendedorId: string | null; taxaCallCenterCentavos: number | null } {
+  const vazio = { vendedorId: null, taxaCallCenterCentavos: null };
   const s = cleanText(raw);
-  if (!s) return { vendedorId: null };
+  if (!s) return vazio;
   try {
     const j = JSON.parse(s) as Record<string, unknown>;
     const v = j.id_user_venda;
     const id = v === undefined || v === null ? '' : String(v).trim();
-    return { vendedorId: /^[\w-]{1,40}$/.test(id) && id !== '0' ? id : null };
+    const t = j.valor_taxa_callcenter;
+    const taxa = t === undefined || t === null || t === '' ? NaN : Number(t);
+    return {
+      vendedorId: /^[\w-]{1,40}$/.test(id) && id !== '0' ? id : null,
+      taxaCallCenterCentavos: Number.isFinite(taxa) && taxa >= 0 ? Math.round(taxa) : null,
+    };
   } catch {
-    return { vendedorId: null };
+    return vazio;
   }
 }
 
@@ -107,7 +121,7 @@ export function hashCliente(raw: string | null): string | null {
 }
 
 export const eventoRowSchema = z.object({
-  payload: z.string().nullable().transform(extrairVendedorDoPayload),
+  payload: z.string().nullable().transform(extrairDoPayload),
   pedido,
   evento: text,
   recebido_em: date('recebido_em'),

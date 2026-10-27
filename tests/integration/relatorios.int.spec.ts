@@ -142,6 +142,10 @@ describe('relatórios financeiros — valores calculados vs esperados', () => {
     expect(c.eventos.map((e: { tipo: string }) => e.tipo).sort()).toEqual(['CHARGEBACK', 'ESTORNO', 'PAGAMENTO']);
     expect(c.perda).toMatchObject({ centavos: 29700, tipo: 'CHARGEBACK', status: 'CHARGEBACK' });
     expect(c.comissao.fonte).toBe('PAGAH');
+    // a coluna "comissão" da planilha é o líquido a receber da Pagah (não é comissão)
+    expect(c.liquidoReceber).toMatchObject({ centavos: 10000, fonte: 'PAGAH' });
+    const vendasP1 = (await get(`/vendas?${Q}&limit=50`)).body.data as { pedido: string; liquidoReceberCentavos: number | null }[];
+    expect(vendasP1.find((v) => v.pedido === 'P1')?.liquidoReceberCentavos).toBe(10000);
     const lista = (await get(`/reembolsos/estornos?${Q}`)).body;
     expect(lista.data.map((v: { pedido: string }) => v.pedido)).toEqual(['P7']);
     const cb = (await get(`/reembolsos/chargebacks?${Q}`)).body.data;
