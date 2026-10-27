@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { usuarioLogin } from '../auth/auth.schemas';
 
-const perfil = z.enum(['ADMIN', 'FINANCEIRO', 'ANALISTA', 'LEITURA']);
+/** SEM_FINANCEIRO = colaborador: só o módulo de RH (nenhuma tela do financeiro) */
+const perfil = z.enum(['ADMIN', 'FINANCEIRO', 'ANALISTA', 'LEITURA', 'SEM_FINANCEIRO']);
 
 export const idParams = z.object({ id: z.string().uuid() });
 
@@ -39,3 +40,8 @@ export const updateBody = z
 
 export const statusBody = z.object({ ativo: z.boolean() });
 export const perfilBody = z.object({ perfil });
+/** Papel no RH (independe do perfil do financeiro) e o cadastro de colaborador ligado; `rhPapel: null` tira a pessoa do RH. */
+export const rhBody = z.object({
+  rhPapel: z.enum(['RH', 'CEO', 'GESTOR', 'COLABORADOR']).nullable(),
+  colaboradorId: z.string().uuid().nullable().optional(),
+});

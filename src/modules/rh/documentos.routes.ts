@@ -12,7 +12,8 @@ import { Errors } from '../../shared/errors/app-error';
 import { audit } from '../../shared/services/audit.service';
 import { created, ok, pageMeta, paginated } from '../../shared/utils/response';
 import { alcanceDe, escreve, exigeRh, PAPEIS_ESCREVEM, veTodos } from './rh.access';
-import { docListQuery, docStatusBody, docUploadBody, idParams } from './rh.schemas';
+import { docListQuery, docResumoQuery, docStatusBody, docUploadBody, idParams } from './rh.schemas';
+import { limitesDoMes } from './rh.service';
 import { documentosDir } from './rh.storage';
 
 /**
@@ -99,6 +100,56 @@ documentosRouter.get('/', validate({ query: docListQuery }), async (req, res) =>
     }),
   ]);
   paginated(res, itens, pageMeta(q.page, q.limit, total));
+});
+
+/**
+ * Visão do mês: cada colaborador que estava na empresa no mês, com a situação da nota fiscal (enviada, aprovada, reprovada ou faltando)
+ * e se já recebeu comprovante. Só RH e CEO (o ADMIN entra como CEO).
+ */
+documentosRouter.get('/resumo', exigeRh(['RH', 'CEO']), validate({ query: docResumoQuery }), async (req, res) => {
+  const { competencia } = req.valid.query as ReturnType<typeof docResumoQuery.parse>;
+  const { inicio, fim } = limitesDoMes(competencia);
+  const pessoas = await prisma.rhColaborador.findMany({
+    where: { AND: [{ OR: [{ inicio: null }, { inicio: { lte: fim } }] }, { OR: [{ demissao: null }, { demissao: { gte: inicio } }] }] },
+    select: { id: true, nome: true, departamento: true, funcao: true },
+    orderBy: { nome: 'asc' },
+  });
+  const docs = await prisma.rhDocumento.findMany({
+    where: { competencia, tipo: { in: ['NOTA_FISCAL', 'COMPROVANTE_PAGAMENTO'] }, colaboradorId: { in: pessoas.map((p) => p.id) } },
+    orderBy: { criadoEm: 'desc' },
+    select: { id: true, colaboradorId: true, tipo: true, status: true, valorCentavos: true, arquivoNome: true, motivoReprovacao: true, criadoEm: true },
+  });
+  const porPessoa = new Map<string, typeof docs>();
+  for (const d of docs) porPessoa.set(d.colaboradorId, [...(porPessoa.get(d.colaboradorId) ?? []), d]);
+  const itens = pessoas.map((p) => {
+    const meus = porPessoa.get(p.id) ?? [];
+    const notas = meus.filter((d) => d.tipo === 'NOTA_FISCAL');
+    const nota = notas[0] ?? null; // a mais recente
+    return {
+      colaboradorId: p.id,
+      nome: p.nome,
+      departamento: p.departamento,
+      funcao: p.funcao,
+      nota: nota && { id: nota.id, status: nota.status, valorCentavos: nota.valorCentavos, arquivoNome: nota.arquivoNome, motivoReprovacao: nota.motivoReprovacao, criadoEm: nota.criadoEm },
+      quantidadeNotas: notas.length,
+      comprovante: meus.some((d) => d.tipo === 'COMPROVANTE_PAGAMENTO'),
+    };
+  });
+  const comNota = itens.filter((i) => i.nota);
+  await audit(req, 'rh.notas_resumo_consultado', 'rh_documento', competencia);
+  ok(res, {
+    competencia,
+    totais: {
+      colaboradores: itens.length,
+      comNota: comNota.length,
+      semNota: itens.length - comNota.length,
+      aprovadas: comNota.filter((i) => i.nota!.status === 'APROVADO').length,
+      aguardandoRevisao: comNota.filter((i) => i.nota!.status === 'ENVIADO').length,
+      reprovadas: comNota.filter((i) => i.nota!.status === 'REPROVADO').length,
+      valorNotasCentavos: comNota.reduce((s, i) => s + (i.nota!.valorCentavos ?? 0), 0),
+    },
+    itens,
+  });
 });
 
 async function documentoVisivel(req: Request, id: string) {

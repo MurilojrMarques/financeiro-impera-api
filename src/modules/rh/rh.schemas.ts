@@ -42,6 +42,8 @@ export const docListQuery = z.object({
   status: z.enum(['ENVIADO', 'APROVADO', 'REPROVADO']).optional(),
 });
 
+export const docResumoQuery = z.object({ competencia: competenciaSchema });
+
 export const docUploadBody = z.object({
   tipo: z.enum(['NOTA_FISCAL', 'COMPROVANTE_PAGAMENTO', 'CONTRATO', 'OUTRO']),
   colaboradorId: z.string().uuid().optional(),

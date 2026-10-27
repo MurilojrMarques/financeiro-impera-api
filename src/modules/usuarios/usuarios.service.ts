@@ -14,6 +14,9 @@ const publicSelect = {
   email: true,
   usuario: true,
   perfil: true,
+  rhPapel: true,
+  colaboradorId: true,
+  colaborador: { select: { nome: true } },
   ativo: true,
   trocaSenhaObrig: true,
   convitePendente: true,
@@ -150,6 +153,27 @@ export class UsuariosService {
     if (id === actorId) throw Errors.conflict('Você não pode alterar o próprio perfil');
     await this.get(id);
     return prisma.usuario.update({ where: { id }, data: { perfil }, select: publicSelect });
+  }
+
+  /**
+   * Papel no RH e vínculo com o cadastro de colaborador. Quem é RH ou CEO enxerga salários, por isso só o ADMIN muda e ninguém muda o próprio.
+   * O mesmo colaborador não pode estar ligado a dois usuários.
+   */
+  async setRh(actorId: string, id: string, b: { rhPapel: 'RH' | 'CEO' | 'GESTOR' | 'COLABORADOR' | null; colaboradorId?: string | null }) {
+    if (id === actorId) throw Errors.conflict('Você não pode alterar o próprio papel no RH');
+    await this.get(id);
+    if (b.colaboradorId) {
+      const colab = await prisma.rhColaborador.findUnique({ where: { id: b.colaboradorId }, select: { id: true } });
+      if (!colab) throw Errors.notFound('Colaborador não encontrado');
+      const outro = await prisma.usuario.findFirst({ where: { colaboradorId: b.colaboradorId, NOT: { id } }, select: { nome: true } });
+      if (outro) throw Errors.conflict(`Esse colaborador já está ligado ao usuário ${outro.nome}`);
+    }
+    const u = await prisma.usuario.update({
+      where: { id },
+      data: { rhPapel: b.rhPapel, ...(b.colaboradorId !== undefined ? { colaboradorId: b.colaboradorId } : {}) },
+      select: publicSelect,
+    });
+    return u;
   }
 
   /** Desativação lógica (preserva auditoria e relacionamentos). */

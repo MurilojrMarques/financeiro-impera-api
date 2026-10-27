@@ -37,6 +37,12 @@ export async function setPerfil(req: Request, res: Response): Promise<void> {
   ok(res, u);
 }
 
+export async function setRh(req: Request, res: Response): Promise<void> {
+  const u = await svc.setRh(req.user!.id, req.valid.params.id, req.valid.body);
+  await audit(req, 'usuario.rh', 'usuario', u.id, { rhPapel: u.rhPapel, colaboradorId: u.colaboradorId });
+  ok(res, u);
+}
+
 export async function remove(req: Request, res: Response): Promise<void> {
   await svc.remove(req.user!.id, req.valid.params.id);
   await audit(req, 'usuario.desativado', 'usuario', req.valid.params.id);
