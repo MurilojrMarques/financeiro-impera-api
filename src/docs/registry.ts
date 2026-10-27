@@ -159,6 +159,7 @@ export const ROUTES: RouteDoc[] = [
 
   // ── Tráfego (faturamento Front × investimento × custos)
   rel('/trafego/resumo', 'Tráfego', 'Faturamento Front, investimento (RedTrack), ROAS, custos e sobra do tráfego'),
+  rel('/comissoes/resumo', 'Comissões', 'Todas as comissões do período (Front do copy, Call Center, Recuperação, Afiliados); por pessoa só FINANCEIRO+'),
   r('get', '/trafego/parametros', 'Tráfego', 'Taxas, frete e custo unitário usados no cálculo', ANALISE),
   r('put', '/trafego/parametros', 'Tráfego', 'Atualiza taxas, frete e custo unitário (auditado)', FIN),
 
