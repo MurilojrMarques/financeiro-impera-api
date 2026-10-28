@@ -107,13 +107,15 @@ trafegoRouter.get('/resumo', validate({ query: filtrosSchema }), async (req, res
    * e custo ÷ compras (convtype2). Os de `roasCentesimos`/`cpaCentavos` seguem sendo os da Pagah (faturamento e pedidos da Pagah ÷ investimento).
    */
   const redtrackDisponivel = inv.fonte === 'REDTRACK' && inv.centavos != null && inv.centavos > 0 && inv.faturamentoCentavos != null;
-  const roasRedtrack = redtrackDisponivel ? Math.round(((inv.faturamentoCentavos as number) + (inv.downsellsCentavos ?? 0)) * 100 / (inv.centavos as number)) : null;
+  /** "Front Revenue" do RedTrack: Front + Upsell + Downsells (revenuetype 2, 3 e 6–9), direto da plataforma; é o numerador do ROAS RedTrack */
+  const frontRevenueRedtrack = inv.fonte === 'REDTRACK' && inv.faturamentoCentavos != null ? (inv.faturamentoCentavos as number) + (inv.downsellsCentavos ?? 0) : null;
+  const roasRedtrack = redtrackDisponivel && frontRevenueRedtrack != null ? Math.round((frontRevenueRedtrack * 100) / (inv.centavos as number)) : null;
   const cpaRedtrack = inv.fonte === 'REDTRACK' && inv.centavos != null && inv.compras ? Math.round(inv.centavos / inv.compras) : null;
   /** comissão do Front = a do sistema de copy (5% do MC BR de cada pessoa); sem detalhe por pessoa aqui */
   const comissaoCopy = copy.disponivel
     ? { disponivel: true as const, comissaoCentavos: copy.comissaoCentavos, aPagarCentavos: copy.aPagarCentavos, estado: copy.estado, pessoas: copy.pessoas.length }
     : { disponivel: false as const, motivo: copy.motivo, mensagem: copy.mensagem };
-  ok(res, { ...resumo, roasRedtrackCentesimos: roasRedtrack, cpaRedtrackCentavos: cpaRedtrack, mcBrCentavos: mcBr, comissaoCopy, conferencia, avisos }, await metaFinanceira(f, { fonteInvestimento: inv.fonte, janelaTrafego: { inicio: ini.toISOString(), fim: fim.toISOString(), deslocamentoMin: params.janelaDeslocamentoMin } }));
+  ok(res, { ...resumo, frontRevenueRedtrackCentavos: frontRevenueRedtrack, roasRedtrackCentesimos: roasRedtrack, cpaRedtrackCentavos: cpaRedtrack, mcBrCentavos: mcBr, comissaoCopy, conferencia, avisos }, await metaFinanceira(f, { fonteInvestimento: inv.fonte, janelaTrafego: { inicio: ini.toISOString(), fim: fim.toISOString(), deslocamentoMin: params.janelaDeslocamentoMin } }));
 });
 
 /** Comissão do Front por pessoa, como o sistema de copy apura (5% do MC BR). Dinheiro de pessoas: só FINANCEIRO ou acima. */

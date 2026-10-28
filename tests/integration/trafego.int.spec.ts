@@ -66,6 +66,7 @@ describe('tráfego: faturamento Front, frete por remessa e janela de datas', () 
     expect(d.data.investimentoCentavos).toBeNull();
     expect(d.data.roasCentesimos).toBeNull();
     expect(d.data.roasRedtrackCentesimos).toBeNull();
+    expect(d.data.frontRevenueRedtrackCentavos).toBeNull();
     expect(d.data.cpaRedtrackCentavos).toBeNull();
     expect(d.data.sobraCentavos).toBeNull();
     expect(d.meta.fonteInvestimento).toBe('NAO_CONFIGURADO');
