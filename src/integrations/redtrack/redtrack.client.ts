@@ -14,10 +14,6 @@ export interface InvestimentoResultado {
   downsellsCentavos?: number | null;
   /** Front + Upsell 1 + Downsell 1 + Downsell 2 (revenuetype2+3+6+7): base do MC BR */
   baseMcBrCentavos?: number | null;
-  /** "Front Revenue" do RedTrack: Front + Upsell + Downsells (revenuetype 2, 3 e 6–9), arredondado uma vez só */
-  frontRevenueCentavos?: number | null;
-  /** MC BR calculado sobre os valores exatos do RedTrack, arredondado uma vez só (igual à coluna MC BR da plataforma) */
-  mcBrCentavos?: number | null;
   compras?: number | null;
   mensagem?: string;
 }
@@ -70,18 +66,12 @@ export function somarCusto(linhas: Linha[], filtroOferta: string): number {
   return somarRedtrack(linhas, filtroOferta).custoCentavos;
 }
 
-/** Valor em reais (com todas as casas que o RedTrack mandar); o arredondamento para centavos só acontece no total. */
-const reais = (v: Num): number => {
+const cent = (v: Num): number => {
   const n = Number(v ?? 0);
-  return Number.isFinite(n) ? n : 0;
+  return Number.isFinite(n) ? Math.round(n * 100) : 0;
 };
-/** Arredonda UMA vez, no total: arredondar cada linha antes de somar acumula centavos de diferença em relação à plataforma. */
-const paraCentavos = (reaisExatos: number): number => Math.round(reaisExatos * 100 + 1e-6);
 
-export function somarRedtrack(
-  linhas: Linha[],
-  filtroOferta: string,
-): { custoCentavos: number; faturamentoCentavos: number; downsellsCentavos: number; frontRevenueCentavos: number; baseMcBrCentavos: number; mcBrCentavos: number; compras: number } {
+export function somarRedtrack(linhas: Linha[], filtroOferta: string): { custoCentavos: number; faturamentoCentavos: number; downsellsCentavos: number; baseMcBrCentavos: number; compras: number } {
   const f = filtroOferta.toLowerCase();
   let custo = 0;
   let fat = 0;
@@ -90,22 +80,14 @@ export function somarRedtrack(
   let compras = 0;
   for (const l of linhas) {
     if (!(l.offer ?? '').toLowerCase().includes(f)) continue;
-    custo += reais(l.cost);
-    for (const k of FATURAMENTO) fat += reais(l[k]);
-    for (const k of DOWNSELLS) down += reais(l[k]);
-    for (const k of MC_BR) base += reais(l[k]);
+    custo += cent(l.cost);
+    for (const k of FATURAMENTO) fat += cent(l[k]);
+    for (const k of DOWNSELLS) down += cent(l[k]);
+    for (const k of MC_BR) base += cent(l[k]);
     const n = Number(l.convtype2 ?? 0);
     if (Number.isFinite(n)) compras += Math.round(n);
   }
-  return {
-    custoCentavos: paraCentavos(custo),
-    faturamentoCentavos: paraCentavos(fat),
-    downsellsCentavos: paraCentavos(down),
-    frontRevenueCentavos: paraCentavos(fat + down),
-    baseMcBrCentavos: paraCentavos(base),
-    mcBrCentavos: paraCentavos(base * 0.7 - custo * 1.1),
-    compras,
-  };
+  return { custoCentavos: custo, faturamentoCentavos: fat, downsellsCentavos: down, baseMcBrCentavos: base, compras };
 }
 
 /** Uma consulta de verdade ao RedTrack. A chave só existe no ambiente e nunca é logada nem devolvida. */
@@ -121,7 +103,7 @@ async function consultar(de: string, ate: string, fetcher: Fetcher): Promise<Inv
     const itens = Array.isArray(body) ? body : ((body as { items?: unknown; data?: unknown })?.items ?? (body as { data?: unknown })?.data);
     if (!Array.isArray(itens)) return { fonte: 'ERRO', centavos: null, mensagem: 'Resposta do RedTrack fora do formato esperado.' };
     const t = somarRedtrack(itens as Linha[], env.REDTRACK_OFFER_FILTER);
-    return { fonte: 'REDTRACK', centavos: t.custoCentavos, faturamentoCentavos: t.faturamentoCentavos, downsellsCentavos: t.downsellsCentavos, frontRevenueCentavos: t.frontRevenueCentavos, baseMcBrCentavos: t.baseMcBrCentavos, mcBrCentavos: t.mcBrCentavos, compras: t.compras };
+    return { fonte: 'REDTRACK', centavos: t.custoCentavos, faturamentoCentavos: t.faturamentoCentavos, downsellsCentavos: t.downsellsCentavos, baseMcBrCentavos: t.baseMcBrCentavos, compras: t.compras };
   } catch (e) {
     const abortou = (e as { name?: string }).name === 'AbortError';
     return { fonte: 'ERRO', centavos: null, mensagem: abortou ? 'RedTrack demorou demais para responder.' : 'Falha de rede ao consultar o RedTrack.' };

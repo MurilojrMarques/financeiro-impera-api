@@ -72,8 +72,6 @@ describe('resumo do tráfego (conferido com a tela de referência, 19/10/2026)',
   });
 });
 
-const MC = -40_803; // 1.005,10 × 0,70 − 1.010,55 × 1,10 = −408,035 (meio centavo: arredonda para cima), arredondado uma vez
-
 describe('RedTrack: investimento', () => {
   beforeEach(() => {
     envMock.REDTRACK_API_KEY = 'chave-de-teste';
@@ -90,18 +88,7 @@ describe('RedTrack: investimento', () => {
   });
 
   it('faturamento = revenuetype 2+3; downsells (6 a 9) à parte; o 4 fica de fora; compras = convtype2', () => {
-    expect(somarRedtrack(linhas, 'pagah')).toEqual({ custoCentavos: 101_055, faturamentoCentavos: 100_010, downsellsCentavos: 2_505, frontRevenueCentavos: 102_515, baseMcBrCentavos: 100_510, mcBrCentavos: MC, compras: 4 });
-  });
-
-  it('arredonda só no total: somar linhas já arredondadas deixava centavos a menos que o RedTrack', () => {
-    // três linhas de R$ 0,004 de custo e R$ 10,004 de receita: por linha seria 3 × 0,00 = 0,00 e 3 × 10,00 = 30,00; exato é 0,012 e 30,012
-    const l = [1, 2, 3].map(() => ({ offer: 'pagah', cost: 0.004, revenuetype2: 10.004 }));
-    const r = somarRedtrack(l, 'pagah');
-    expect(r.custoCentavos).toBe(1); // 0,012 → 0,01
-    expect(r.faturamentoCentavos).toBe(3001); // 30,012 → 30,01
-    expect(r.frontRevenueCentavos).toBe(3001);
-    // MC BR sobre o exato: 30,012 × 0,70 − 0,012 × 1,10 = 20,9952 → R$ 21,00
-    expect(r.mcBrCentavos).toBe(2100);
+    expect(somarRedtrack(linhas, 'pagah')).toEqual({ custoCentavos: 101_055, faturamentoCentavos: 100_010, downsellsCentavos: 2_505, baseMcBrCentavos: 100_510, compras: 4 });
   });
 
   it('sem chave: indisponível, sem chamar a rede', async () => {
@@ -116,7 +103,7 @@ describe('RedTrack: investimento', () => {
     const f = vi.fn(async (_u: string) => ({ ok: true, status: 200, json: async () => linhas }));
     const a = await investimentoNoPeriodo('2026-10-19', '2026-10-19', f as unknown as Fetcher);
     const b = await investimentoNoPeriodo('2026-10-19', '2026-10-19', f as unknown as Fetcher);
-    expect(a).toEqual({ fonte: 'REDTRACK', centavos: 101_055, faturamentoCentavos: 100_010, downsellsCentavos: 2_505, frontRevenueCentavos: 102_515, baseMcBrCentavos: 100_510, mcBrCentavos: MC, compras: 4 });
+    expect(a).toEqual({ fonte: 'REDTRACK', centavos: 101_055, faturamentoCentavos: 100_010, downsellsCentavos: 2_505, baseMcBrCentavos: 100_510, compras: 4 });
     expect(b).toEqual(a);
     expect(f).toHaveBeenCalledTimes(1);
     expect(f.mock.calls[0]?.[0]).toContain('timezone=America%2FSao_Paulo');
