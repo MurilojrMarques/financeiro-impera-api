@@ -101,14 +101,14 @@ trafegoRouter.get('/resumo', validate({ query: filtrosSchema }), async (req, res
   if (resumo.kitsSemQuantidade > 0) avisos.push(`${resumo.kitsSemQuantidade} itens sem quantidade no nome do kit: contados como 1 unidade.`);
 
   /** MC BR do RedTrack ((Front + Upsell 1 + Downsell 1 + Downsell 2) × 70% − investimento × 110%); null se o RedTrack estiver indisponível */
-  const mcBr = inv.baseMcBrCentavos != null && inv.centavos !== null ? mcBrCentavos(inv.baseMcBrCentavos, inv.centavos) : null;
+  const mcBr = inv.mcBrCentavos ?? (inv.baseMcBrCentavos != null && inv.centavos !== null ? mcBrCentavos(inv.baseMcBrCentavos, inv.centavos) : null);
   /**
    * ROAS e CPA do RedTrack (os que o tráfego usa para validar oferta e criativo): receita Front do RedTrack (inclui downsells, como o "Front Revenue" da plataforma) ÷ custo,
    * e custo ÷ compras (convtype2). Os de `roasCentesimos`/`cpaCentavos` seguem sendo os da Pagah (faturamento e pedidos da Pagah ÷ investimento).
    */
   const redtrackDisponivel = inv.fonte === 'REDTRACK' && inv.centavos != null && inv.centavos > 0 && inv.faturamentoCentavos != null;
   /** "Front Revenue" do RedTrack: Front + Upsell + Downsells (revenuetype 2, 3 e 6–9), direto da plataforma; é o numerador do ROAS RedTrack */
-  const frontRevenueRedtrack = inv.fonte === 'REDTRACK' && inv.faturamentoCentavos != null ? (inv.faturamentoCentavos as number) + (inv.downsellsCentavos ?? 0) : null;
+  const frontRevenueRedtrack = inv.fonte === 'REDTRACK' ? (inv.frontRevenueCentavos ?? null) : null;
   const roasRedtrack = redtrackDisponivel && frontRevenueRedtrack != null ? Math.round((frontRevenueRedtrack * 100) / (inv.centavos as number)) : null;
   const cpaRedtrack = inv.fonte === 'REDTRACK' && inv.centavos != null && inv.compras ? Math.round(inv.centavos / inv.compras) : null;
   /** comissão do Front = a do sistema de copy (5% do MC BR de cada pessoa); sem detalhe por pessoa aqui */

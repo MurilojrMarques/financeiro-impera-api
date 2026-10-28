@@ -48,7 +48,7 @@ dashboardRouter.get('/trafego', authorize(Roles.ANALISE), q, relatorio(async (f,
   const [inv, m, cc, rec, copy] = await Promise.all([investimentoNoPeriodo(f.de, f.ate), totais(base), doGrupo('CALL_CENTER'), doGrupo('RECUPERACAO'), comissaoCopyNoPeriodo(f.de, f.ate)]);
   // MC BR é a margem que sobra para a empresa, NÃO é comissão. A comissão do Front é a do sistema de copy (5% do MC BR de cada pessoa), lida de lá.
   // Call Center = 20% e Recuperação = (valor × 0,70) × 5%, ambos do líquido (já no ledger). Afiliados = o que os afiliados recebem (regra/valor por afiliado). Backend Outros ainda não tem comissão.
-  const mcBr = inv.baseMcBrCentavos != null && inv.centavos !== null ? mcBrCentavos(inv.baseMcBrCentavos, inv.centavos) : null;
+  const mcBr = inv.mcBrCentavos ?? (inv.baseMcBrCentavos != null && inv.centavos !== null ? mcBrCentavos(inv.baseMcBrCentavos, inv.centavos) : null);
   return {
     investimentoCentavos: inv.centavos,
     mcBrCentavos: mcBr,
