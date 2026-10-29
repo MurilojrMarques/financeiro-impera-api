@@ -21,6 +21,17 @@ export const listQuery = z.object({
   ativo: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
 });
 
+/** chave PIX: CPF, CNPJ, e-mail, celular ou chave aleatória; sem espaços. null remove */
+export const pixBody = z.object({ pix: z.string().trim().regex(/^\S{3,120}$/, 'a chave PIX não pode ter espaços').nullable() });
+
+export const imperaCredQuery = z.object({ competencia: competenciaSchema });
+export const imperaCredBody = z.object({
+  colaboradorId: z.string().uuid(),
+  competencia: competenciaSchema,
+  valorCentavos: z.number().int().min(1).max(100_000_000_00),
+  observacao: z.string().trim().max(300).optional(),
+});
+
 export const folhaItemBody = z
   .object({
     comissaoCentavos: centavos,
@@ -44,7 +55,22 @@ export const docListQuery = z.object({
 
 export const docResumoQuery = z.object({ competencia: competenciaSchema });
 export const comissaoQuery = z.object({ competencia: competenciaSchema });
-export const comissaoVinculoBody = z.object({ copywriterId: z.string().uuid(), colaboradorId: z.string().uuid().nullable() });
+/** chave do beneficiário: uuid do copywriter no copy, ou GESTOR:GREG / EDITOR:MINEIRO / FIXO:IAGO */
+export const chaveComissao = z.union([z.string().uuid(), z.string().regex(/^(GESTOR|EDITOR|FIXO):[A-Z]{2,20}$/, 'chave de comissão inválida')]);
+export const comissaoVinculoBody = z.object({ chave: chaveComissao, colaboradorId: z.string().uuid().nullable() });
+export const otimizacaoQuery = z.object({ competencia: competenciaSchema });
+export const otimizacaoBody = z.object({
+  competencia: competenciaSchema,
+  copywriter: z.string().trim().min(2).max(40),
+  descricao: z.string().trim().min(3).max(200),
+  valorCentavos: z.number().int().min(1).max(10_000_000).optional(),
+});
+export const vslBody = z.object({
+  chave: z.string().trim().min(3).max(120),
+  dono: z.string().trim().min(2).max(40).nullable(),
+  editor: z.string().trim().min(2).max(40).nullable(),
+  mesmaVsl: z.string().trim().min(3).max(120).nullable(),
+});
 export const comissaoLancarBody = z.object({ competencia: competenciaSchema });
 
 export const docUploadBody = z.object({

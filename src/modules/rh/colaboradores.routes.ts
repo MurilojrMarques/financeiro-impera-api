@@ -8,8 +8,8 @@ import { validate } from '../../middlewares/validate.middleware';
 import { Errors } from '../../shared/errors/app-error';
 import { audit } from '../../shared/services/audit.service';
 import { ok, pageMeta, paginated } from '../../shared/utils/response';
-import { alcanceDe, exigeRh, PAPEIS_VEEM_SALARIO, podeVer, serializarColaborador, visaoDe } from './rh.access';
-import { idParams, listQuery } from './rh.schemas';
+import { alcanceDe, exigeRh, PAPEIS_ESCREVEM, PAPEIS_VEEM_SALARIO, podeVer, serializarColaborador, visaoDe } from './rh.access';
+import { idParams, listQuery, pixBody } from './rh.schemas';
 import { fotosDir } from './rh.storage';
 
 export const colaboradoresRouter = Router();
@@ -119,6 +119,17 @@ colaboradoresRouter.get('/:id/movimentacoes', validate({ params: idParams }), as
   const movs = await prisma.rhMovimentacao.findMany({ where: { colaboradorId: id }, orderBy: [{ data: 'desc' }, { criadoEm: 'desc' }] });
   await audit(req, 'rh.salario_consultado', 'rh_colaborador', id, { historico: true });
   ok(res, movs);
+});
+
+/** A chave PIX não existe no sistema do RH: é mantida aqui, só pelo RH. A mudança entra na auditoria sem gravar a chave (dado pessoal). */
+colaboradoresRouter.patch('/:id/pix', exigeRh(PAPEIS_ESCREVEM), validate({ params: idParams, body: pixBody }), async (req, res) => {
+  const id = req.valid.params.id as string;
+  const { pix } = req.valid.body as { pix: string | null };
+  const atual = await prisma.rhColaborador.findUnique({ where: { id }, select: { id: true, pix: true } });
+  if (!atual) throw Errors.notFound('Colaborador não encontrado');
+  await prisma.rhColaborador.update({ where: { id }, data: { pix } });
+  await audit(req, 'rh.pix_alterado', 'rh_colaborador', id, { tinha: atual.pix !== null, tem: pix !== null });
+  ok(res, { id, pix });
 });
 
 // Salário, cargo, promoção, cadastro e desligamento NÃO se alteram aqui: a origem de verdade é o sistema do RH (Alexandre) e esta API só

@@ -646,6 +646,11 @@ model RhColaborador {
   discordUserId   String?
   /// id do copywriter no sistema de copy (comissionamento): liga a comissão do Front a esta pessoa; definido pelo RH, a origem do RH não mexe
   copywriterId    String?   @unique @db.Uuid
+  imperaCreds     RhImperaCred[]
+  /// chave PIX para o pagamento (CPF, CNPJ, e-mail, celular ou chave aleatória): não vem do sistema do RH, é mantida aqui pelo RH
+  pix             String?
+  /// chave do beneficiário da comissão que não é copywriter (GESTOR:GREG, EDITOR:MINEIRO, FIXO:IAGO): definido pelo RH
+  comissaoChave   String?   @unique
   /// foto guardada como arquivo (não mais base64 dentro do banco)
   fotoArquivo     String?
   /// SHA-256 da foto na origem: só regrava o arquivo quando ela muda
@@ -796,7 +801,9 @@ model RhFolhaItem {
   comissaoCentavos      Int               @default(0)
   bonusCentavos         Int               @default(0)
   descontoCentavos      Int               @default(0)
-  /// salário + comissão + bônus − desconto
+  /// ImperaCred (adiantamento de salário) do mês anterior, descontado aqui; vem de rh_impera_cred, não se edita direto
+  imperaCredCentavos    Int               @default(0)
+  /// salário + comissão + bônus − desconto − ImperaCred
   totalCentavos         Int
   status                RhStatusPagamento @default(PENDENTE)
   pagoEm                DateTime?         @db.Date
@@ -868,4 +875,53 @@ model RhAlteracao {
   @@index([colaboradorId, detectadaEm])
   @@index([tipo, detectadaEm])
   @@map("rh_alteracoes")
+}
+
+/// Cadastro das VSLs da comissão por VSL (a chave vem do nome da landing: nicho + oferta + produto + vslNN). Dono e editor são decisão do negócio
+/// (ClickUp + Elias), não estão no RedTrack. `mesmaVsl`: esta chave se junta a outra (oferta cadastrada com número ou nicho errado).
+model ComissaoVsl {
+  id           String   @id @default(uuid()) @db.Uuid
+  chave        String   @unique
+  /// apelido do copywriter dono da VSL (YAN, ELIAS...); EMPRESA = não comissiona
+  dono         String?
+  /// quem editou a 1ª versão (MINEIRO...); RIPAGEM e SEM VSL não têm editor
+  editor       String?
+  mesmaVsl     String?
+  fonte        String?
+  atualizadoEm DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  @@map("comissao_vsl")
+}
+
+/// Otimização validada (lead ou MLD que o time validou): vale R$ 500 para o copywriter, lançada pelo RH no mês da competência.
+model ComissaoOtimizacao {
+  id            String   @id @default(uuid()) @db.Uuid
+  competencia   String
+  /// apelido do copywriter no sistema de copy (YAN, CAROL...)
+  copywriter    String
+  descricao     String
+  valorCentavos Int      @default(50000)
+  criadoPorId   String?  @db.Uuid
+  criadoEm      DateTime @default(now()) @db.Timestamptz
+
+  @@index([competencia])
+  @@map("comissao_otimizacoes")
+}
+
+/// ImperaCred: adiantamento de salário feito no mês `competencia` e descontado, inteiro, da folha do mês seguinte
+/// (recebe 5.000, adianta 2.500 em outubro => em novembro recebe 2.500). O RH lança; a folha do mês seguinte soma sozinha.
+model RhImperaCred {
+  id            String        @id @default(uuid()) @db.Uuid
+  colaboradorId String        @db.Uuid
+  /// mês (AAAA-MM) em que o adiantamento foi feito
+  competencia   String
+  valorCentavos Int
+  observacao    String?
+  criadoPorId   String?       @db.Uuid
+  criadoEm      DateTime      @default(now()) @db.Timestamptz
+  colaborador   RhColaborador @relation(fields: [colaboradorId], references: [id], onDelete: Restrict)
+
+  @@index([competencia])
+  @@index([colaboradorId, competencia])
+  @@map("rh_impera_cred")
 }

@@ -6,20 +6,20 @@ import { audit } from '../../shared/services/audit.service';
 import { created, ok } from '../../shared/utils/response';
 import { exigeRh, PAPEIS_ESCREVEM, PAPEIS_VEEM_SALARIO } from './rh.access';
 import { competenciaParams, folhaItemBody, itemParams } from './rh.schemas';
-import { calculoDoItem, colaboradoresDoMes, totalDoItem } from './rh.service';
+import { calculoDoItem, colaboradoresDoMes, imperaCredDoDesconto, totalDoItem } from './rh.service';
 
 /**
  * Folha de pagamento (PJ). Só RH e CEO enxergam; só o RH altera.
  * O valor pago é o SALÁRIO cadastrado (sem multiplicador de PJ, decisão de 26/10/2026), proporcional a 30 dias para quem entrou ou saiu no mês
- * (salário ÷ 30 × dias trabalhados), + comissão + bônus − desconto lançados à mão.
- * Comissão automática por colaborador ainda não existe: o campo é lançado manualmente.
+ * (salário ÷ 30 × dias trabalhados), + comissão + bônus − desconto lançados à mão − ImperaCred (o adiantamento de salário do mês anterior,
+ * que entra sozinho: ver imperacred.routes.ts). A comissão do Front por colaborador é lançada pela aba Comissões.
  */
 export const folhaRouter = Router();
 folhaRouter.use(exigeRh(PAPEIS_VEEM_SALARIO));
 
 const dia = (s: string): Date => new Date(`${s}T00:00:00.000Z`);
 
-function resumoDosItens(itens: { salarioCentavos: number; salarioMensalCentavos: number; comissaoCentavos: number; bonusCentavos: number; descontoCentavos: number; totalCentavos: number; status: string }[]) {
+function resumoDosItens(itens: { salarioCentavos: number; salarioMensalCentavos: number; comissaoCentavos: number; bonusCentavos: number; descontoCentavos: number; imperaCredCentavos: number; totalCentavos: number; status: string }[]) {
   const soma = (f: (i: (typeof itens)[number]) => number) => itens.reduce((s, i) => s + f(i), 0);
   return {
     pessoas: itens.length,
@@ -28,6 +28,7 @@ function resumoDosItens(itens: { salarioCentavos: number; salarioMensalCentavos:
     comissoesCentavos: soma((i) => i.comissaoCentavos),
     bonusCentavos: soma((i) => i.bonusCentavos),
     descontosCentavos: soma((i) => i.descontoCentavos),
+    imperaCredCentavos: soma((i) => i.imperaCredCentavos),
     totalCentavos: soma((i) => i.totalCentavos),
     pagoCentavos: soma((i) => (i.status === 'PAGO' ? i.totalCentavos : 0)),
     pendenteCentavos: soma((i) => (i.status === 'PENDENTE' ? i.totalCentavos : 0)),
@@ -66,12 +67,14 @@ folhaRouter.post('/:competencia/gerar', exigeRh(PAPEIS_ESCREVEM), validate({ par
   const itensAtuais = await prisma.rhFolhaItem.findMany({ where: { competenciaId: comp.id } });
   const jaTem = new Map(itensAtuais.map((i) => [i.colaboradorId, i]));
   const calculo = (p: (typeof pessoas)[number]) => calculoDoItem(competencia, p);
+  const adiantado = await imperaCredDoDesconto(competencia); // ImperaCred do mês anterior: esta folha desconta
   const novos = pessoas.filter((p) => !jaTem.has(p.id));
   if (novos.length > 0) {
     await prisma.rhFolhaItem.createMany({
       data: novos.map((p) => {
         const c = calculo(p);
-        return { competenciaId: comp.id, colaboradorId: p.id, ...c, totalCentavos: c.salarioCentavos };
+        const imperaCredCentavos = adiantado.get(p.id) ?? 0;
+        return { competenciaId: comp.id, colaboradorId: p.id, ...c, imperaCredCentavos, totalCentavos: totalDoItem({ ...c, comissaoCentavos: 0, bonusCentavos: 0, descontoCentavos: 0, imperaCredCentavos }) };
       }),
     });
   }
@@ -81,9 +84,10 @@ folhaRouter.post('/:competencia/gerar', exigeRh(PAPEIS_ESCREVEM), validate({ par
       const atual = jaTem.get(p.id);
       if (!atual) continue;
       const c = calculo(p);
-      if (c.salarioCentavos === atual.salarioCentavos && c.diasTrabalhados === atual.diasTrabalhados && c.salarioMensalCentavos === atual.salarioMensalCentavos) continue;
+      const imperaCredCentavos = adiantado.get(p.id) ?? 0;
+      if (c.salarioCentavos === atual.salarioCentavos && c.diasTrabalhados === atual.diasTrabalhados && c.salarioMensalCentavos === atual.salarioMensalCentavos && imperaCredCentavos === atual.imperaCredCentavos) continue;
       recalculados++;
-      await prisma.rhFolhaItem.update({ where: { id: atual.id }, data: { ...c, totalCentavos: totalDoItem({ ...c, comissaoCentavos: atual.comissaoCentavos, bonusCentavos: atual.bonusCentavos, descontoCentavos: atual.descontoCentavos }) } });
+      await prisma.rhFolhaItem.update({ where: { id: atual.id }, data: { ...c, imperaCredCentavos, totalCentavos: totalDoItem({ ...c, comissaoCentavos: atual.comissaoCentavos, bonusCentavos: atual.bonusCentavos, descontoCentavos: atual.descontoCentavos, imperaCredCentavos }) } });
     }
   }
   await audit(req, 'rh.folha_gerada', 'rh_folha', comp.id, { competencia, incluidos: novos.length, recalculados, total: pessoas.length });
@@ -102,7 +106,7 @@ folhaRouter.patch('/:competencia/itens/:itemId', exigeRh(PAPEIS_ESCREVEM), valid
     bonusCentavos: b.bonusCentavos ?? item.bonusCentavos,
     descontoCentavos: b.descontoCentavos ?? item.descontoCentavos,
   };
-  const total = totalDoItem({ salarioCentavos: item.salarioCentavos, ...novo });
+  const total = totalDoItem({ salarioCentavos: item.salarioCentavos, imperaCredCentavos: item.imperaCredCentavos, ...novo });
   if (total < 0) throw Errors.validation([{ path: 'descontoCentavos', message: 'O desconto não pode deixar o total negativo' }]);
   const status = b.status ?? item.status;
   const atualizado = await prisma.rhFolhaItem.update({

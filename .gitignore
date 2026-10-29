@@ -7,3 +7,4 @@ storage/
 storage-test/
 src/generated/
 coverage/
+*.xlsx

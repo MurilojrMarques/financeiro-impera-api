@@ -7,6 +7,7 @@ import { mailOutbox } from '../../src/shared/services/mail.service';
 import type { PerfilUsuario } from '../../src/generated/prisma/client';
 
 const TABELAS = [
+  'comissao_vsl', 'comissao_otimizacoes',
   'rh_alteracoes', 'rh_sincronizacoes', 'rh_documentos', 'rh_folha_itens', 'rh_folha_competencias', 'rh_movimentacoes', 'rh_faixas_salariais', 'rh_usuarios_legado', 'rh_colaboradores',
   'auditoria', 'sessoes', 'anexos_custo', 'custos_operacionais', 'recorrencias_custo', 'regras_custo', 'categorias_custo',
   'redtrack_conversoes', 'venda_eventos', 'venda_produtos', 'vendas', 'afiliado_aliases', 'regras_comissao_afiliado',

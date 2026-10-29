@@ -18,10 +18,21 @@ export interface ComissaoCopyPessoa {
   copywriterId: string;
   nome: string;
   mcBrCentavos: number;
+  /** MC BR sem arredondar (reais): as comissões se calculam daqui para não perder centavo */
+  mcBrExatoReais: number;
   /** 5% do MC BR da pessoa (pode ser negativa) */
   comissaoCentavos: number;
   /** o que se paga de fato: piso em 0 */
   aPagarCentavos: number;
+  /** false = desligado do copy: continua na apuração (o MC dele entra em bases de terceiros), mas não recebe */
+  ativo: boolean;
+}
+
+export interface CopywriterDoCopy {
+  id: string;
+  nome: string;
+  comissionavel: boolean;
+  ativo: boolean;
 }
 
 export type ComissaoCopy =
@@ -38,6 +49,8 @@ export type ComissaoCopy =
       /** PROVISORIO: há dias ainda não fechados (custo do RedTrack em revisão) */
       estado: 'FECHADO' | 'PROVISORIO';
       pessoas: ComissaoCopyPessoa[];
+      /** todos os copywriters do sistema de copy (inclusive quem não rodou criativo no período): donos de VSL precisam do id */
+      copywriters: CopywriterDoCopy[];
     }
   | { disponivel: false; motivo: 'NAO_CONFIGURADO' | 'REGRA_ANTERIOR' | 'CORTA_MES_FECHADO' | 'ERRO'; mensagem: string };
 
@@ -116,17 +129,18 @@ async function consultar(de: string, ate: string): Promise<ComissaoCopy> {
     if (corte) {
       return { disponivel: false, motivo: 'CORTA_MES_FECHADO', mensagem: `O período corta o mês fechado ${corte.slice(5)}/${corte.slice(0, 4)} no sistema de copy: use o mês inteiro ou só dias de um mês em aberto.` };
     }
-    const porPessoa = await c.query<{ id: string | null; nome: string | null; comissionavel: boolean | null; mc: string; com: string; provisorios: string }>(
-      `SELECT a.copywriter_id AS id, cw.nome, cw.comissionavel,
-              round(sum(a.mc_br), 2)::text AS mc,
+    const porPessoa = await c.query<{ id: string | null; nome: string | null; comissionavel: boolean | null; ativo: boolean | null; mc: string; mc_exato: string; com: string; provisorios: string }>(
+      `SELECT a.copywriter_id AS id, cw.nome, cw.comissionavel, cw.ativo,
+              round(sum(a.mc_br), 2)::text AS mc, sum(a.mc_br)::text AS mc_exato,
               round($3::numeric * sum(a.mc_br), 2)::text AS com,
               count(*) FILTER (WHERE a.estado = 'provisorio')::text AS provisorios
          FROM public.vw_ads_dia a
          LEFT JOIN public.copywriters cw ON cw.id = a.copywriter_id
         WHERE a.dia BETWEEN $1::date AND $2::date
-        GROUP BY a.copywriter_id, cw.nome, cw.comissionavel`,
+        GROUP BY a.copywriter_id, cw.nome, cw.comissionavel, cw.ativo`,
       [de, ate, TAXA_COMISSAO_COPY],
     );
+    const todos = await c.query<{ id: string; nome: string; comissionavel: boolean | null; ativo: boolean | null }>(`SELECT id, nome, comissionavel, ativo FROM public.copywriters`);
     await c.query('COMMIT');
 
     const pessoas: ComissaoCopyPessoa[] = [];
@@ -139,7 +153,7 @@ async function consultar(de: string, ate: string): Promise<ComissaoCopy> {
         continue;
       }
       const com = centavos(r.com);
-      pessoas.push({ copywriterId: r.id, nome: r.nome ?? '—', mcBrCentavos: centavos(r.mc), comissaoCentavos: com, aPagarCentavos: Math.max(0, com) });
+      pessoas.push({ copywriterId: r.id, nome: r.nome ?? '—', mcBrCentavos: centavos(r.mc), mcBrExatoReais: Number(r.mc_exato), comissaoCentavos: com, aPagarCentavos: Math.max(0, com), ativo: r.ativo !== false });
     }
     pessoas.sort((a, b) => b.comissaoCentavos - a.comissaoCentavos || a.nome.localeCompare(b.nome));
     return {
@@ -150,6 +164,7 @@ async function consultar(de: string, ate: string): Promise<ComissaoCopy> {
       mcBrSemComissaoCentavos: semComissao,
       estado: provisorios > 0 ? 'PROVISORIO' : 'FECHADO',
       pessoas,
+      copywriters: todos.rows.map((r) => ({ id: r.id, nome: r.nome, comissionavel: r.comissionavel === true, ativo: r.ativo !== false })),
     };
   } catch (e) {
     await c.query('ROLLBACK').catch(() => undefined);

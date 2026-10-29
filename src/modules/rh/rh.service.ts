@@ -46,8 +46,40 @@ export function diasTrabalhadosNoMes(competencia: string, inicio: Date | null, d
 /** salário ÷ 30 × dias trabalhados, arredondado ao centavo. */
 export const salarioProporcional = (mensalCentavos: number, dias: number): number => Math.round((mensalCentavos * dias) / DIAS_DO_MES_COMERCIAL);
 
-export const totalDoItem = (i: { salarioCentavos: number; comissaoCentavos: number; bonusCentavos: number; descontoCentavos: number }): number =>
-  i.salarioCentavos + i.comissaoCentavos + i.bonusCentavos - i.descontoCentavos;
+/** salário + comissão + bônus − desconto − ImperaCred (o adiantamento do mês anterior). */
+export const totalDoItem = (i: { salarioCentavos: number; comissaoCentavos: number; bonusCentavos: number; descontoCentavos: number; imperaCredCentavos: number }): number =>
+  i.salarioCentavos + i.comissaoCentavos + i.bonusCentavos - i.descontoCentavos - i.imperaCredCentavos;
+
+const mesComDeslocamento = (competencia: string, meses: number): string => {
+  const [a, m] = competencia.split('-').map(Number) as [number, number];
+  return new Date(Date.UTC(a, m - 1 + meses, 1)).toISOString().slice(0, 7);
+};
+export const competenciaSeguinte = (competencia: string): string => mesComDeslocamento(competencia, 1);
+export const competenciaAnterior = (competencia: string): string => mesComDeslocamento(competencia, -1);
+
+/** O que cada colaborador adiantou (ImperaCred) no mês anterior: é o que a folha de `competencia` desconta. */
+export async function imperaCredDoDesconto(competencia: string, colaboradorIds?: string[]): Promise<Map<string, number>> {
+  const r = await prisma.rhImperaCred.groupBy({
+    by: ['colaboradorId'],
+    where: { competencia: competenciaAnterior(competencia), ...(colaboradorIds ? { colaboradorId: { in: colaboradorIds } } : {}) },
+    _sum: { valorCentavos: true },
+  });
+  return new Map(r.map((x) => [x.colaboradorId, x._sum.valorCentavos ?? 0]));
+}
+
+/**
+ * Depois de lançar ou apagar um ImperaCred: a folha do mês seguinte (se já existir e estiver ABERTA) passa a descontar o valor certo dessa pessoa.
+ * Folha que ainda não existe pega o valor ao ser gerada; folha fechada nunca é tocada (a rota barra antes).
+ */
+export async function aplicarImperaCredNaFolha(competenciaDoDesconto: string, colaboradorId: string): Promise<void> {
+  const folha = await prisma.rhFolhaCompetencia.findUnique({ where: { competencia: competenciaDoDesconto } });
+  if (!folha || folha.status !== 'ABERTA') return;
+  const item = await prisma.rhFolhaItem.findFirst({ where: { competenciaId: folha.id, colaboradorId } });
+  if (!item) return;
+  const valor = (await imperaCredDoDesconto(competenciaDoDesconto, [colaboradorId])).get(colaboradorId) ?? 0;
+  if (valor === item.imperaCredCentavos) return;
+  await prisma.rhFolhaItem.update({ where: { id: item.id }, data: { imperaCredCentavos: valor, totalCentavos: totalDoItem({ ...item, imperaCredCentavos: valor }) } });
+}
 
 /** Quem estava na folha do mês: começou até o fim do mês e não saiu antes do início dele. */
 export async function colaboradoresDoMes(competencia: string) {
@@ -90,7 +122,7 @@ export async function recalcularFolhaAbertaDoMes(colaboradorIds: string[]): Prom
     const c = calculoDoItem(competencia, p);
     if (c.salarioCentavos === item.salarioCentavos && c.diasTrabalhados === item.diasTrabalhados && c.salarioMensalCentavos === item.salarioMensalCentavos) continue;
     mudou++;
-    await prisma.rhFolhaItem.update({ where: { id: item.id }, data: { ...c, totalCentavos: totalDoItem({ ...c, comissaoCentavos: item.comissaoCentavos, bonusCentavos: item.bonusCentavos, descontoCentavos: item.descontoCentavos }) } });
+    await prisma.rhFolhaItem.update({ where: { id: item.id }, data: { ...c, totalCentavos: totalDoItem({ ...c, comissaoCentavos: item.comissaoCentavos, bonusCentavos: item.bonusCentavos, descontoCentavos: item.descontoCentavos, imperaCredCentavos: item.imperaCredCentavos }) } });
   }
   return mudou;
 }

@@ -65,7 +65,7 @@ export const podeVer = (a: Alcance, colaboradorId: string): boolean =>
 export interface Visao {
   /** salário e histórico salarial */
   salario: boolean;
-  /** CNPJ, endereço e nascimento */
+  /** CNPJ, endereço, nascimento e chave PIX */
   pessoais: boolean;
 }
 
@@ -100,7 +100,7 @@ export function serializarColaborador(c: Colab & { gestor?: { id: string; nome: 
     demissao: c.demissao,
     ativo: c.demissao === null,
     foto: c.fotoArquivo ? `/api/v1/rh/colaboradores/${c.id}/foto` : null,
-    ...(v.pessoais ? { nascimento: c.nascimento, cnpj: c.cnpj, endereco: c.endereco, motivoDemissao: c.motivoDemissao, discordUserId: c.discordUserId, contratoObs: c.contratoObs } : {}),
+    ...(v.pessoais ? { nascimento: c.nascimento, cnpj: c.cnpj, pix: c.pix, endereco: c.endereco, motivoDemissao: c.motivoDemissao, discordUserId: c.discordUserId, contratoObs: c.contratoObs } : {}),
     ...(v.salario ? { salarioCentavos: c.salarioCentavos } : {}),
   };
 }

@@ -4,6 +4,7 @@ import { colaboradoresRouter } from './colaboradores.routes';
 import { comissoesRouter } from './comissoes.routes';
 import { documentosRouter } from './documentos.routes';
 import { folhaRouter } from './folha.routes';
+import { imperaCredRouter } from './imperacred.routes';
 import { monitoramentoRouter } from './monitoramento.routes';
 import { exigeRh } from './rh.access';
 
@@ -16,3 +17,4 @@ rhRouter.use('/colaboradores', colaboradoresRouter);
 rhRouter.use('/folha', folhaRouter);
 rhRouter.use('/documentos', documentosRouter);
 rhRouter.use('/comissoes', comissoesRouter);
+rhRouter.use('/imperacred', imperaCredRouter);
