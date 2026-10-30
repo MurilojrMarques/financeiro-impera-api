@@ -1,5 +1,6 @@
 import { prisma } from '../../config/database';
 import { comissaoCopyNoPeriodo, type ComissaoCopy } from '../../integrations/copy-supabase/copy-comissao';
+import { vslDoCopyNoPeriodo } from '../../integrations/copy-supabase/copy-vsl';
 import { relatorioPorLanding } from '../../integrations/redtrack/redtrack.landing';
 import { limitesDoMes } from '../rh/rh.service';
 import { linhasPorVsl, type LinhaVsl } from './vsl.domain';
@@ -187,10 +188,13 @@ export function apurar(e: EntradaApuracao): ApuracaoFront {
 const dia = (d: Date): string => d.toISOString().slice(0, 10);
 
 export type ResultadoApuracaoFront =
-  | ({ disponivel: true; estado: 'FECHADO' | 'PROVISORIO'; completa: boolean; vslDisponivel: boolean; vslMensagem: string | null } & ApuracaoFront)
+  | ({ disponivel: true; estado: 'FECHADO' | 'PROVISORIO'; completa: boolean; vslDisponivel: boolean; vslMensagem: string | null; vslFonte: 'COPY' | 'REDTRACK' | null } & ApuracaoFront)
   | { disponivel: false; motivo: string; mensagem: string };
 
-/** Carrega as fontes (copy, RedTrack por landing, cadastro de VSL e otimizações) e apura o mês. */
+/**
+ * Carrega as fontes e apura o mês. O MC BR por VSL, com dono e editor, vem do sistema de copy (`vw_vsl_dia`); sem a view ou sem dado do mês,
+ * volta ao RedTrack por landing com o cadastro local (`comissao_vsl`), que é o caminho de antes da 0012 do comissionamento.
+ */
 export async function apurarFront(competencia: string): Promise<ResultadoApuracaoFront> {
   const { inicio, fim } = limitesDoMes(competencia);
   const copy = await comissaoCopyNoPeriodo(dia(inicio), dia(fim));
@@ -199,17 +203,25 @@ export async function apurarFront(competencia: string): Promise<ResultadoApuraca
   const completa = competencia >= INICIO_REGRA_COMPLETA;
   let vsl: EntradaApuracao['vsl'] = null;
   let vslMensagem: string | null = null;
+  let vslFonte: 'COPY' | 'REDTRACK' | null = null;
   if (completa) {
-    const [rel, cadastro] = await Promise.all([relatorioPorLanding(dia(inicio), dia(fim)), prisma.comissaoVsl.findMany({ select: { chave: true, dono: true, editor: true, mesmaVsl: true } })]);
-    if (rel.ok) {
-      const mesma = Object.fromEntries(cadastro.filter((c) => c.mesmaVsl).map((c) => [c.chave, c.mesmaVsl!]));
-      vsl = { linhas: linhasPorVsl(rel.linhas, 'Pagah', mesma), cadastro };
+    const doCopy = await vslDoCopyNoPeriodo(dia(inicio), dia(fim));
+    if (doCopy.disponivel) {
+      vsl = { linhas: doCopy.linhas, cadastro: doCopy.cadastro };
+      vslFonte = 'COPY';
     } else {
-      vslMensagem = rel.mensagem;
+      const [rel, cadastro] = await Promise.all([relatorioPorLanding(dia(inicio), dia(fim)), prisma.comissaoVsl.findMany({ select: { chave: true, dono: true, editor: true, mesmaVsl: true } })]);
+      if (rel.ok) {
+        const mesma = Object.fromEntries(cadastro.filter((c) => c.mesmaVsl).map((c) => [c.chave, c.mesmaVsl!]));
+        vsl = { linhas: linhasPorVsl(rel.linhas, 'Pagah', mesma), cadastro };
+        vslFonte = 'REDTRACK';
+      } else {
+        vslMensagem = rel.mensagem;
+      }
     }
   }
   const otimizacoes = completa ? await prisma.comissaoOtimizacao.findMany({ where: { competencia }, select: { copywriter: true, valorCentavos: true } }) : [];
   const deslig = await prisma.rhColaborador.findMany({ where: { copywriterId: { not: null }, demissao: { not: null } }, select: { copywriterId: true } });
   const r = apurar({ copy, vsl, otimizacoes, completa, desligados: new Set(deslig.map((d) => d.copywriterId!)) });
-  return { disponivel: true, estado: copy.estado, completa, vslDisponivel: !completa || vsl !== null, vslMensagem, ...r };
+  return { disponivel: true, estado: copy.estado, completa, vslDisponivel: !completa || vsl !== null, vslMensagem, vslFonte, ...r };
 }

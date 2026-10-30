@@ -9,7 +9,11 @@ const CW_ANA = '11111111-1111-4111-8111-111111111111';
 const CW_BRUNO = '22222222-2222-4222-8222-222222222222';
 const CW_NEG = '33333333-3333-4333-8333-333333333333';
 
-const fonte = vi.hoisted(() => ({ estado: 'FECHADO' as 'FECHADO' | 'PROVISORIO', disponivel: true, redtrack: true, landingNova: false }));
+const fonte = vi.hoisted(() => ({ estado: 'FECHADO' as 'FECHADO' | 'PROVISORIO', disponivel: true, redtrack: true, landingNova: false, vslDoCopy: null as null | { linhas: unknown[]; cadastro: unknown[] } }));
+// as VSLs do banco do copy (0012): sem elas (padrão), o motor volta ao RedTrack por landing com o cadastro local
+vi.mock('../../src/integrations/copy-supabase/copy-vsl', () => ({
+  vslDoCopyNoPeriodo: vi.fn(async () => (fonte.vslDoCopy ? { disponivel: true, ...fonte.vslDoCopy } : { disponivel: false, motivo: 'SEM_VIEW', mensagem: 'sem a 0012' })),
+}));
 vi.mock('../../src/integrations/copy-supabase/copy-comissao', () => {
   const p = (copywriterId: string, nome: string, mc: number) => ({ copywriterId, nome, mcBrCentavos: mc * 100, mcBrExatoReais: mc, comissaoCentavos: mc * 5, aPagarCentavos: Math.max(0, mc * 5), ativo: true });
   return {
@@ -97,6 +101,24 @@ describe('RH: comissão do Front por colaborador', () => {
     expect(d.sugestoes['EDITOR:MINEIRO'].map((c: { nome: string }) => c.nome)).toEqual(['Igor Paiva']);
   });
 
+  it('as VSLs do banco do copy vencem o RedTrack direto e o cadastro local: o dono e o editor vêm de lá', async () => {
+    fonte.vslDoCopy = {
+      linhas: [{ vsl: 'NE OF04 NERVE PURE', gestor: 'GREG', mc: 1000, cost: 0, rev: 0 }],
+      cadastro: [{ chave: 'NE OF04 NERVE PURE', dono: 'BRUNO', editor: 'MINEIRO', mesmaVsl: null }],
+    };
+    try {
+      const d = (await get(tokens.rh!)).body.data;
+      expect(d.vsl).toEqual({ disponivel: true, mensagem: null, fonte: 'COPY' });
+      expect(item(d, CW_BRUNO)).toMatchObject({ vslCentavos: 5_000 }); // 5% de R$ 1.000: o dono agora é o BRUNO
+      expect(item(d, CW_ANA)).toMatchObject({ vslCentavos: 0 });
+      expect(item(d, 'EDITOR:MINEIRO')).toMatchObject({ outrosCentavos: 1_000 });
+      expect(item(d, 'GESTOR:GREG')).toMatchObject({ outrosCentavos: 5_000 });
+    } finally {
+      fonte.vslDoCopy = null;
+    }
+    expect((await get(tokens.rh!)).body.data.vsl).toEqual({ disponivel: true, mensagem: null, fonte: 'REDTRACK' }); // sem elas, o caminho de antes
+  });
+
   it('só o RH vincula; a chave pode ser de copywriter ou de gestor/editor/fixo, e só fica com um colaborador', async () => {
     expect((await vincula(tokens.admin!, CW_ANA, colabs.ana!)).status).toBe(403);
     expect((await vincula(tokens.ana!, CW_ANA, colabs.ana!)).status).toBe(403);
@@ -151,7 +173,7 @@ describe('RH: comissão do Front por colaborador', () => {
 
     fonte.landingNova = true;
     const novo = await get(tokens.rh!); // VSL nova sem dono no cadastro: não bloqueia nada, não entra na comissão de ninguém e o RH não a cadastra
-    expect(novo.body.data.vsl).toEqual({ disponivel: true, mensagem: null });
+    expect(novo.body.data.vsl).toEqual({ disponivel: true, mensagem: null, fonte: 'REDTRACK' });
     expect(item(novo.body.data, CW_ANA)).toMatchObject({ vslCentavos: 5_000, aPagarCentavos: 125_000 }); // os donos não mudam
     expect(item(novo.body.data, CW_BRUNO)).toMatchObject({ vslCentavos: 0 });
     expect(novo.body.data.totais.aPagarCentavos).toBe(214_250); // só Greg (5% da campanha) e Iago (2,5% do total) recebem sobre ela: 5% e 2,5% de R$ 100

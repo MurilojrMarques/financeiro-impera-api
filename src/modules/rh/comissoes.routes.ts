@@ -71,7 +71,7 @@ comissoesRouter.get('/', validate({ query: comissaoQuery }), async (req, res) =>
     completa: r.completa,
     itens,
     sugestoes,
-    vsl: { disponivel: r.vslDisponivel, mensagem: r.vslMensagem },
+    vsl: { disponivel: r.vslDisponivel, mensagem: r.vslMensagem, fonte: r.vslFonte },
     totais: {
       comissaoCentavos: r.totais.apuradaCentavos,
       aPagarCentavos: r.totais.aPagarCentavos,

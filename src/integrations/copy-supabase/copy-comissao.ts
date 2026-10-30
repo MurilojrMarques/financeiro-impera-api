@@ -57,7 +57,8 @@ export type ComissaoCopy =
 export const copyConfigurado = (): boolean => !!env.SUPABASE_DB_URL_POOLER;
 
 let pool: Pool | null = null;
-function conexao(): Pool {
+/** A conexão só de leitura com o banco do comissionamento, compartilhada com `copy-vsl.ts`. */
+export function conexao(): Pool {
   if (pool) return pool;
   // a verificação do certificado usa a CA pública do Supabase (certs/); sem ela a conexão é recusada, nunca aceita às cegas
   const ca = readFileSync(resolve(process.cwd(), env.COPY_DB_CA_FILE), 'utf8');
