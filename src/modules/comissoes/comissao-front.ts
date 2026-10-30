@@ -68,8 +68,6 @@ export interface EntradaApuracao {
 
 export interface ApuracaoFront {
   itens: BeneficiarioComissao[];
-  /** VSLs com MC BR no período e sem dono no cadastro: o dinheiro delas não chega a ninguém até o RH cadastrar */
-  vslSemDono: { vsl: string; mcBrCentavos: number }[];
   totais: { apuradaCentavos: number; aPagarCentavos: number };
 }
 
@@ -105,17 +103,13 @@ export function apurar(e: EntradaApuracao): ApuracaoFront {
     soma(porGestor, norm(l.gestor), l.mc);
     total += l.mc;
   }
-  const vslSemDono: ApuracaoFront['vslSemDono'] = [];
+  // VSL sem dono no cadastro não entra na comissão de ninguém: o dono é decisão do negócio e o RH não decide
   for (const [vsl, mc] of porVsl) {
     const c = cadastro.get(vsl);
-    if (!c?.dono) {
-      if (Math.abs(mc) >= 0.005) vslSemDono.push({ vsl, mcBrCentavos: cent(mc) });
-      continue;
-    }
+    if (!c?.dono) continue;
     soma(porDono, norm(c.dono), mc);
     if (c.editor) soma(porEditor, norm(c.editor), mc);
   }
-  vslSemDono.sort((a, b) => b.mcBrCentavos - a.mcBrCentavos);
 
   const otim = new Map<string, number>();
   for (const o of e.otimizacoes) soma(otim, norm(o.copywriter), o.valorCentavos);
@@ -186,7 +180,6 @@ export function apurar(e: EntradaApuracao): ApuracaoFront {
   visiveis.sort((a, b) => (b.aPagarCentavos ?? -1) - (a.aPagarCentavos ?? -1) || a.nome.localeCompare(b.nome));
   return {
     itens: visiveis,
-    vslSemDono,
     totais: { apuradaCentavos: calculadas.reduce((s, i) => s + (i.apuradaCentavos ?? 0), 0), aPagarCentavos: calculadas.reduce((s, i) => s + (i.aPagarCentavos ?? 0), 0) },
   };
 }

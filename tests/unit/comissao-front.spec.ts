@@ -80,14 +80,15 @@ describe('apuração do Front: setembro/2026 contra a folha', () => {
     expect(de(r, 'Lucas')).toMatchObject({ status: 'EM_IMPLEMENTACAO', aPagarCentavos: null });
     expect(de(r, 'João Pedro').status).toBe('EM_IMPLEMENTACAO');
     expect(r.totais.aPagarCentavos).toBe(r.itens.filter((i) => i.status === 'CALCULADA').reduce((s, i) => s + (i.aPagarCentavos ?? 0), 0));
-    expect(r.vslSemDono).toEqual([]);
   });
 });
 
 describe('apuração do Front: bordas', () => {
-  it('VSL sem dono no cadastro aparece na lista e o dinheiro dela não vai para ninguém', () => {
+  it('VSL sem dono no cadastro não vai para nenhum dono, editor nem para o Elias; só o fixo do Iago (MC BR total) enxerga o MC dela', () => {
+    const antes = apurar(entrada());
     const r = apurar(entrada({ vsl: { linhas: [...linhas, l('NE OF99 PRODUTO NOVO', 1234.56)], cadastro } }));
-    expect(r.vslSemDono).toEqual([{ vsl: 'NE OF99 PRODUTO NOVO', mcBrCentavos: 123456 }]);
+    for (const i of antes.itens.filter((x) => x.chave !== 'FIXO:IAGO')) expect(de(r, i.nome)).toEqual(i);
+    expect(de(r, 'Iago').mcBrCentavos).toBe(de(antes, 'Iago').mcBrCentavos! + 123456);
   });
 
   it('antes da regra completa (competência < 2026-09): só o 5% dos criativos, sem VSL, otimização, liderança nem outras pessoas', () => {

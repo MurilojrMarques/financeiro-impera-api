@@ -1,0 +1,7 @@
+{
+    "permissions": {
+        "allow": [
+            "Bash(ssh -i ~/.ssh/hefesto-servidor -o BatchMode=yes murilo@5.161.233.251 *)"
+        ]
+    }
+}

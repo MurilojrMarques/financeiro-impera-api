@@ -89,7 +89,7 @@ describe('RH: comissão do Front por colaborador', () => {
     expect(item(d, 'EDITOR:MINEIRO')).toMatchObject({ outrosCentavos: 1_000 });
     expect(item(d, 'GESTOR:LUCAS')).toMatchObject({ status: 'EM_IMPLEMENTACAO', aPagarCentavos: null });
     expect(d.totais).toMatchObject({ aPagarCentavos: 213_500, semVinculo: 5, emImplementacao: 2 });
-    expect(d.vsl).toMatchObject({ disponivel: true, semDono: [] });
+    expect(d.vsl).toMatchObject({ disponivel: true });
     expect(d.sugestoes[CW_ANA].map((c: { nome: string }) => c.nome)).toEqual(['Ana Souza']);
     expect(d.sugestoes[CW_BRUNO].map((c: { nome: string }) => c.nome)).toEqual(['Bruno Lima', 'Bruno Outro']); // ambíguo: o RH escolhe
     expect(d.sugestoes['GESTOR:GREG'].map((c: { nome: string }) => c.nome)).toEqual(['Gregori Santos']);
@@ -132,7 +132,7 @@ describe('RH: comissão do Front por colaborador', () => {
     expect(item((await get(tokens.rh!)).body.data, CW_ANA)).toMatchObject({ otimizacoesCentavos: 0, aPagarCentavos: 125_000 });
   });
 
-  it('lançar na folha: exige folha gerada, mês fechado, RedTrack no ar, VSL com dono e vínculo de quem tem a pagar; o que está em implementação não é tocado', async () => {
+  it('lançar na folha: exige folha gerada, mês fechado, RedTrack no ar e vínculo de quem tem a pagar; o que está em implementação não é tocado', async () => {
     expect((await lanca(tokens.admin!)).status).toBe(403);
     expect((await lanca(tokens.rh!)).status).toBe(409); // sem folha
     await request(app).post('/api/v1/rh/folha/2026-10/gerar').set('Authorization', tokens.rh!);
@@ -150,15 +150,12 @@ describe('RH: comissão do Front por colaborador', () => {
     fonte.redtrack = true;
 
     fonte.landingNova = true;
-    const novo = await get(tokens.rh!);
-    expect(novo.body.data.vsl.semDono).toEqual([{ vsl: 'DA OF09 PRODUTO NOVO VSL01', mcBrCentavos: 10_000 }]); // 300 × 0,70 − 100 × 1,10 = R$ 100
-    const semDono = await lanca(tokens.rh!);
-    expect(semDono.status).toBe(409);
-    expect(semDono.body.error.message).toMatch(/Cadastre o dono/);
-    expect((await request(app).put('/api/v1/rh/comissoes/vsl').set('Authorization', tokens.admin!).send({ chave: 'DA OF09 PRODUTO NOVO VSL01', dono: 'BRUNO', editor: null, mesmaVsl: null })).status).toBe(403);
-    const cad = await request(app).put('/api/v1/rh/comissoes/vsl').set('Authorization', tokens.rh!).send({ chave: 'DA OF09 PRODUTO NOVO VSL01', dono: 'bruno', editor: null, mesmaVsl: null });
-    expect(cad.status).toBe(200);
-    expect(cad.body.data.dono).toBe('BRUNO');
+    const novo = await get(tokens.rh!); // VSL nova sem dono no cadastro: não bloqueia nada, não entra na comissão de ninguém e o RH não a cadastra
+    expect(novo.body.data.vsl).toEqual({ disponivel: true, mensagem: null });
+    expect(item(novo.body.data, CW_ANA)).toMatchObject({ vslCentavos: 5_000, aPagarCentavos: 125_000 }); // os donos não mudam
+    expect(item(novo.body.data, CW_BRUNO)).toMatchObject({ vslCentavos: 0 });
+    expect(novo.body.data.totais.aPagarCentavos).toBe(214_250); // só Greg (5% da campanha) e Iago (2,5% do total) recebem sobre ela: 5% e 2,5% de R$ 100
+    expect((await request(app).put('/api/v1/rh/comissoes/vsl').set('Authorization', tokens.rh!).send({ chave: 'DA OF09 PRODUTO NOVO VSL01', dono: 'bruno', editor: null, mesmaVsl: null })).status).toBe(404);
     fonte.landingNova = false;
 
     // falta vincular quem tem valor a pagar (ANA e BRUNO já estão; Iago e Mineiro não)
