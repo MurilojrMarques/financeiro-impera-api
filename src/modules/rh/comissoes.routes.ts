@@ -4,6 +4,7 @@ import { validate } from '../../middlewares/validate.middleware';
 import { Errors } from '../../shared/errors/app-error';
 import { audit } from '../../shared/services/audit.service';
 import { created, ok } from '../../shared/utils/response';
+import { bonusLeadDoCopyNoMes } from '../../integrations/copy-supabase/copy-bonus-lead';
 import { apurarFront, norm, VALOR_OTIMIZACAO_CENTAVOS, type BeneficiarioComissao } from '../comissoes/comissao-front';
 import { exigeRh, PAPEIS_ESCREVEM, veTodos } from './rh.access';
 import { comissaoLancarBody, comissaoQuery, comissaoVinculoBody, idParams, otimizacaoBody, otimizacaoQuery } from './rh.schemas';
@@ -12,7 +13,7 @@ import { totalDoItem } from './rh.service';
 /**
  * Comissão do time do Front por colaborador (regras e fonte de cada dado em ../comissoes/comissao-front.ts).
  * O vínculo beneficiário → colaborador do RH é decidido pelo RH (copywriterId para quem é do copy; comissaoChave para gestor, editor e fixo),
- * porque os nomes não casam sozinhos. A área é só do RH e do CEO (gestor e colaborador não veem comissão). Só o RH vincula, lança otimizações
+ * porque os nomes não casam sozinhos. A área é só do RH e do CEO (gestor e colaborador não veem comissão). Só o RH vincula, lança otimizações (o bônus de lead e MLD confirmado no sistema de copy, quando há, vale no lugar)
  * e lança na folha. Dono e editor da VSL são decisão do negócio (tabela comissao_vsl): o RH não os decide e a tela não os edita; VSL sem dono
  * não entra na comissão de ninguém. Lançar na folha exige o mês FECHADO no copy, o RedTrack respondendo e a folha do mês ABERTA.
  */
@@ -72,6 +73,7 @@ comissoesRouter.get('/', validate({ query: comissaoQuery }), async (req, res) =>
     itens,
     sugestoes,
     vsl: { disponivel: r.vslDisponivel, mensagem: r.vslMensagem, fonte: r.vslFonte },
+    otimizacoes: { fonte: r.otimizacoesFonte },
     totais: {
       comissaoCentavos: r.totais.apuradaCentavos,
       aPagarCentavos: r.totais.aPagarCentavos,
@@ -142,6 +144,10 @@ comissoesRouter.get('/otimizacoes', validate({ query: otimizacaoQuery }), async 
 
 comissoesRouter.post('/otimizacoes', exigeRh(PAPEIS_ESCREVEM), validate({ body: otimizacaoBody }), async (req, res) => {
   const b = req.valid.body as { competencia: string; copywriter: string; descricao: string; valorCentavos?: number };
+  // o bônus de lead e MLD é sugerido pelo sistema de copy e confirmado pelo admin lá; com decisão no mês, o RH não soma por cima
+  if ((await bonusLeadDoCopyNoMes(b.competencia)).disponivel) {
+    throw Errors.conflict('Neste mês o bônus de lead e MLD vem do sistema de copy, confirmado pelo admin: não se lança aqui.');
+  }
   const criada = await prisma.comissaoOtimizacao.create({
     data: { competencia: b.competencia, copywriter: norm(b.copywriter), descricao: b.descricao, valorCentavos: b.valorCentavos ?? VALOR_OTIMIZACAO_CENTAVOS, criadoPorId: req.user?.id ?? null },
   });

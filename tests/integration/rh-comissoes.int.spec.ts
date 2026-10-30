@@ -9,7 +9,11 @@ const CW_ANA = '11111111-1111-4111-8111-111111111111';
 const CW_BRUNO = '22222222-2222-4222-8222-222222222222';
 const CW_NEG = '33333333-3333-4333-8333-333333333333';
 
-const fonte = vi.hoisted(() => ({ estado: 'FECHADO' as 'FECHADO' | 'PROVISORIO', disponivel: true, redtrack: true, landingNova: false, vslDoCopy: null as null | { linhas: unknown[]; cadastro: unknown[] } }));
+const fonte = vi.hoisted(() => ({ estado: 'FECHADO' as 'FECHADO' | 'PROVISORIO', disponivel: true, redtrack: true, landingNova: false, vslDoCopy: null as null | { linhas: unknown[]; cadastro: unknown[] }, bonusDoCopy: null as null | { itens: { copywriter: string; valorCentavos: number }[]; decididas: number } }));
+// o bônus de lead e MLD confirmado no copy (0013): sem decisão no mês (padrão), vale o que o RH lançou
+vi.mock('../../src/integrations/copy-supabase/copy-bonus-lead', () => ({
+  bonusLeadDoCopyNoMes: vi.fn(async () => (fonte.bonusDoCopy ? { disponivel: true, ...fonte.bonusDoCopy } : { disponivel: false, motivo: 'SEM_DECISAO', mensagem: 'sem decisão' })),
+}));
 // as VSLs do banco do copy (0012): sem elas (padrão), o motor volta ao RedTrack por landing com o cadastro local
 vi.mock('../../src/integrations/copy-supabase/copy-vsl', () => ({
   vslDoCopyNoPeriodo: vi.fn(async () => (fonte.vslDoCopy ? { disponivel: true, ...fonte.vslDoCopy } : { disponivel: false, motivo: 'SEM_VIEW', mensagem: 'sem a 0012' })),
@@ -94,6 +98,7 @@ describe('RH: comissão do Front por colaborador', () => {
     expect(item(d, 'GESTOR:LUCAS')).toMatchObject({ status: 'EM_IMPLEMENTACAO', aPagarCentavos: null });
     expect(d.totais).toMatchObject({ aPagarCentavos: 213_500, semVinculo: 5, emImplementacao: 2 });
     expect(d.vsl).toMatchObject({ disponivel: true });
+    expect(d.otimizacoes).toEqual({ fonte: 'RH' });
     expect(d.sugestoes[CW_ANA].map((c: { nome: string }) => c.nome)).toEqual(['Ana Souza']);
     expect(d.sugestoes[CW_BRUNO].map((c: { nome: string }) => c.nome)).toEqual(['Bruno Lima', 'Bruno Outro']); // ambíguo: o RH escolhe
     expect(d.sugestoes['GESTOR:GREG'].map((c: { nome: string }) => c.nome)).toEqual(['Gregori Santos']);
@@ -152,6 +157,22 @@ describe('RH: comissão do Front por colaborador', () => {
     expect((await request(app).delete(`/api/v1/rh/comissoes/otimizacoes/${criada.body.data.id}`).set('Authorization', tokens.admin!)).status).toBe(403);
     expect((await request(app).delete(`/api/v1/rh/comissoes/otimizacoes/${criada.body.data.id}`).set('Authorization', tokens.rh!)).status).toBe(200);
     expect(item((await get(tokens.rh!)).body.data, CW_ANA)).toMatchObject({ otimizacoesCentavos: 0, aPagarCentavos: 125_000 });
+  });
+
+  it('o bônus de lead e MLD confirmado no copy vale no lugar do lançamento do RH, e o RH não soma por cima', async () => {
+    const nova = { competencia: '2026-10', copywriter: 'ana', descricao: 'Nerve Pure LD12' };
+    fonte.bonusDoCopy = { itens: [{ copywriter: 'Ana', valorCentavos: 50_000 }], decididas: 2 };
+    try {
+      const d = (await get(tokens.rh!)).body.data;
+      expect(d.otimizacoes).toEqual({ fonte: 'COPY' });
+      expect(item(d, CW_ANA)).toMatchObject({ otimizacoesCentavos: 50_000, aPagarCentavos: 175_000 });
+      const barrado = await request(app).post('/api/v1/rh/comissoes/otimizacoes').set('Authorization', tokens.rh!).send(nova);
+      expect(barrado.status).toBe(409);
+      expect(await prisma.comissaoOtimizacao.count()).toBe(0);
+    } finally {
+      fonte.bonusDoCopy = null;
+    }
+    expect(item((await get(tokens.rh!)).body.data, CW_ANA)).toMatchObject({ otimizacoesCentavos: 0 });
   });
 
   it('lançar na folha: exige folha gerada, mês fechado, RedTrack no ar e vínculo de quem tem a pagar; o que está em implementação não é tocado', async () => {

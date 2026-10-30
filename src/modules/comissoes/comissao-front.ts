@@ -1,6 +1,7 @@
 import { prisma } from '../../config/database';
 import { comissaoCopyNoPeriodo, type ComissaoCopy } from '../../integrations/copy-supabase/copy-comissao';
 import { vslDoCopyNoPeriodo } from '../../integrations/copy-supabase/copy-vsl';
+import { bonusLeadDoCopyNoMes } from '../../integrations/copy-supabase/copy-bonus-lead';
 import { relatorioPorLanding } from '../../integrations/redtrack/redtrack.landing';
 import { limitesDoMes } from '../rh/rh.service';
 import { linhasPorVsl, type LinhaVsl } from './vsl.domain';
@@ -188,7 +189,7 @@ export function apurar(e: EntradaApuracao): ApuracaoFront {
 const dia = (d: Date): string => d.toISOString().slice(0, 10);
 
 export type ResultadoApuracaoFront =
-  | ({ disponivel: true; estado: 'FECHADO' | 'PROVISORIO'; completa: boolean; vslDisponivel: boolean; vslMensagem: string | null; vslFonte: 'COPY' | 'REDTRACK' | null } & ApuracaoFront)
+  | ({ disponivel: true; estado: 'FECHADO' | 'PROVISORIO'; completa: boolean; vslDisponivel: boolean; vslMensagem: string | null; vslFonte: 'COPY' | 'REDTRACK' | null; otimizacoesFonte: 'COPY' | 'RH' } & ApuracaoFront)
   | { disponivel: false; motivo: string; mensagem: string };
 
 /**
@@ -220,8 +221,11 @@ export async function apurarFront(competencia: string): Promise<ResultadoApuraca
       }
     }
   }
-  const otimizacoes = completa ? await prisma.comissaoOtimizacao.findMany({ where: { competencia }, select: { copywriter: true, valorCentavos: true } }) : [];
+  // o bônus de lead e MLD: se o admin já decidiu alguma lead do mês no sistema de copy, ele é a fonte do mês; senão vale o que o RH lançou
+  const bonusDoCopy = completa ? await bonusLeadDoCopyNoMes(competencia) : null;
+  const otimizacoesFonte: 'COPY' | 'RH' = bonusDoCopy?.disponivel ? 'COPY' : 'RH';
+  const otimizacoes = !completa ? [] : bonusDoCopy?.disponivel ? bonusDoCopy.itens : await prisma.comissaoOtimizacao.findMany({ where: { competencia }, select: { copywriter: true, valorCentavos: true } });
   const deslig = await prisma.rhColaborador.findMany({ where: { copywriterId: { not: null }, demissao: { not: null } }, select: { copywriterId: true } });
   const r = apurar({ copy, vsl, otimizacoes, completa, desligados: new Set(deslig.map((d) => d.copywriterId!)) });
-  return { disponivel: true, estado: copy.estado, completa, vslDisponivel: !completa || vsl !== null, vslMensagem, vslFonte, ...r };
+  return { disponivel: true, estado: copy.estado, completa, vslDisponivel: !completa || vsl !== null, vslMensagem, vslFonte, otimizacoesFonte, ...r };
 }
