@@ -1,3 +1,4 @@
+import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import { conexao, copyConfigurado } from './copy-comissao';
 
@@ -35,6 +36,7 @@ export const limparCacheCopyBonusLead = (): void => cache.clear();
 /** `competencia` = AAAA-MM. */
 export async function bonusLeadDoCopyNoMes(competencia: string): Promise<BonusLeadDoCopy> {
   if (!copyConfigurado()) return { disponivel: false, motivo: 'NAO_CONFIGURADO', mensagem: 'Sistema de copy não configurado.' };
+  if (!env.COMISSAO_VSL_DO_COPY) return { disponivel: false, motivo: 'NAO_CONFIGURADO', mensagem: 'A VSL do sistema de copy está em teste e desligada na comissão (COMISSAO_VSL_DO_COPY).' };
   const guardado = cache.get(competencia);
   if (guardado && Date.now() - guardado.em < TTL_MS) return guardado.valor;
   try {

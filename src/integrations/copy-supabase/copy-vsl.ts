@@ -1,3 +1,4 @@
+import { env } from '../../config/env';
 import { logger } from '../../config/logger';
 import type { VslCadastro } from '../../modules/comissoes/comissao-front';
 import type { LinhaVsl } from '../../modules/comissoes/vsl.domain';
@@ -39,6 +40,7 @@ export const limparCacheCopyVsl = (): void => cache.clear();
 
 export async function vslDoCopyNoPeriodo(de: string, ate: string): Promise<VslDoCopy> {
   if (!copyConfigurado()) return { disponivel: false, motivo: 'NAO_CONFIGURADO', mensagem: 'Sistema de copy não configurado.' };
+  if (!env.COMISSAO_VSL_DO_COPY) return { disponivel: false, motivo: 'NAO_CONFIGURADO', mensagem: 'A VSL do sistema de copy está em teste e desligada na comissão (COMISSAO_VSL_DO_COPY).' };
   const chave = `${de}|${ate}`;
   const guardado = cache.get(chave);
   if (guardado && Date.now() - guardado.em < guardado.ttl) return guardado.valor;

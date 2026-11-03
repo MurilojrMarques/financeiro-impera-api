@@ -101,6 +101,13 @@ const schema = z.object({
   SUPABASE_DB_URL_POOLER: z.string().optional(),
   /** CA pública do Supabase, para verificar o certificado da conexão (nunca aceitamos sem verificar) */
   COPY_DB_CA_FILE: z.string().default('./certs/supabase-prod-ca-2021.crt'),
+  /**
+   * A comissão do Front lê as VSLs e o bônus de lead e MLD do banco do copy (migrations 0014 e 0015 do comissionamento)?
+   * Desligado (padrão): a folha segue como estava, RedTrack por landing com o cadastro local e o lançamento do RH. A VSL
+   * do copy está em teste só para admin; ligar isto muda de onde vêm os números da comissão, então fica para depois
+   * da aceitação do Elias e é ato deliberado.
+   */
+  COMISSAO_VSL_DO_COPY: bool.default(false),
   RH_DOC_MAX_BYTES: z.coerce.number().int().positive().default(10 * 1024 * 1024),
 
   RATE_LIMIT_LOGIN_MAX: z.coerce.number().int().positive().default(10),
