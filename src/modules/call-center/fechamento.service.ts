@@ -11,13 +11,30 @@ export async function fechamentoCallCenter(alvo: string | { de: string; ate: str
   return calcularFechamento(alvo, vendas, posicaoEm);
 }
 
-/** Os pedidos que importam ao período: pagos nele, ou revertidos nele (os pagos antes). */
+/**
+ * Os pedidos que importam ao período: pagos nele, ou revertidos nele (os pagos antes).
+ *
+ * A data de reversão que vale aqui é a da PRIMEIRA: o pedido que foi estornado em 26/10 e só virou chargeback em 03/11 já
+ * estava devolvido em outubro. A `perdaEm` do pedido guarda o chargeback (regra do Elias: estorno + chargeback integrais são
+ * uma perda só, e fica o chargeback), o que serve ao financeiro mas não a este fechamento, que pergunta "em que dia o pedido
+ * deixou de valer".
+ */
 export async function vendasDoFechamento(inicio: Date, fim: Date): Promise<VendaDoFechamento[]> {
-  return prisma.venda.findMany({
-    where: { OR: [{ pagoEm: { gte: inicio, lt: fim } }, { perdaEm: { gte: inicio, lt: fim }, pagoEm: { lt: inicio } }] },
+  const noPeriodo = { gte: inicio, lt: fim };
+  const linhas = await prisma.venda.findMany({
+    where: {
+      OR: [
+        { pagoEm: noPeriodo },
+        { pagoEm: { lt: inicio }, OR: [{ estornadoEm: noPeriodo }, { chargebackEm: noPeriodo }, { perdaEm: noPeriodo }] },
+      ],
+    },
     select: {
       pedido: true, origem: true, status: true, metodoPagamento: true, parcelas: true, pagoEm: true, perdaEm: true,
-      valorVendaCentavos: true, valorTotalCentavos: true, jurosCentavos: true,
+      estornadoEm: true, chargebackEm: true, valorVendaCentavos: true, valorTotalCentavos: true, jurosCentavos: true,
     },
+  });
+  return linhas.map(({ estornadoEm, chargebackEm, ...v }) => {
+    const datas = [estornadoEm, chargebackEm].filter((d): d is Date => d !== null);
+    return { ...v, perdaEm: datas.length > 0 ? new Date(Math.min(...datas.map((d) => d.getTime()))) : v.perdaEm };
   });
 }

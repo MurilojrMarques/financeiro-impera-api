@@ -37,6 +37,16 @@ describe('origem do Pagah pelo vendedor e fechamento do Call Center', () => {
     await venda('N1', { vendedorId: '777' }); // vendedor sem origem cadastrada: segue o canal da planilha
     await venda('H1', { vendedorId: '889380', origem: 'Whats' }); // a origem que a fonte trouxe nunca é trocada
     await venda('S1', { vendedorId: '889387', pagoEm: new Date('2026-09-15T12:00:00-03:00') }); // setembro não muda
+    // Estornado em 26/10 e só virou chargeback em 03/11: a perda do pedido guarda o chargeback, mas em outubro ele já tinha sido devolvido.
+    await venda('E1', {
+      vendedorId: '889380', pagoEm: new Date('2026-10-23T15:40:00-03:00'), status: 'CHARGEBACK',
+      estornadoEm: new Date('2026-10-26T16:25:22-03:00'), chargebackEm: new Date('2026-11-03T06:38:53-03:00'), perdaEm: new Date('2026-11-03T06:38:53-03:00'),
+    });
+    // Revertido só em 03/11 (sem estorno antes): em outubro ainda era venda.
+    await venda('D1', {
+      vendedorId: '889380', pagoEm: new Date('2026-10-28T11:10:00-03:00'), status: 'CHARGEBACK',
+      chargebackEm: new Date('2026-11-03T06:38:53-03:00'), perdaEm: new Date('2026-11-03T06:38:53-03:00'),
+    });
   });
   afterAll(closeDatabase);
 
@@ -56,9 +66,12 @@ describe('origem do Pagah pelo vendedor e fechamento do Call Center', () => {
     expect(r.status).toBe(200);
     const d = r.body.data;
     expect(d.mes).toBeNull();
-    expect(d.vendas.pedidos).toBe(2); // C1 (Call) e H1 (Whats)
-    expect(d.vendas.totalCentavos).toBe(2 * 39_700);
-    expect(d.comissao.vendasCentavos).toBe(Math.round(2 * 39_700 * 0.2));
+    // C1 (Call), H1 (Whats) e D1 (revertido só depois do mês). E1 já tinha sido estornado em outubro e fica de fora.
+    expect(d.vendas.pedidos).toBe(3);
+    expect(d.vendas.totalCentavos).toBe(3 * 39_700);
+    expect(d.comissao.vendasCentavos).toBe(Math.round(3 * 39_700 * 0.2));
+    expect(d.avisos.revertidasNoMes.pedidos).toBe(1);
+    expect(d.avisos.revertidasDepois.pedidos).toBe(1);
     expect(d.avisos.semOrigem.pedidos).toBe(1); // N1: vendedor sem origem cadastrada
   });
 
@@ -66,7 +79,7 @@ describe('origem do Pagah pelo vendedor e fechamento do Call Center', () => {
     const mes = await request(app).get(`${api}/call-center/fechamento?mes=2026-10`).set('Authorization', financeiro);
     expect(mes.status).toBe(200);
     expect(mes.body.data.mes).toBe('2026-10');
-    expect(mes.body.data.vendas.pedidos).toBe(2);
+    expect(mes.body.data.vendas.pedidos).toBe(3);
     const ambos = await request(app).get(`${api}/call-center/fechamento?mes=2026-10&de=2026-10-01&ate=2026-10-31`).set('Authorization', financeiro);
     expect(ambos.status).toBe(422);
     const nenhum = await request(app).get(`${api}/call-center/fechamento`).set('Authorization', financeiro);
