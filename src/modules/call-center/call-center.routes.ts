@@ -17,6 +17,7 @@ import { Errors } from '../../shared/errors/app-error';
 import { audit } from '../../shared/services/audit.service';
 import { created, ok } from '../../shared/utils/response';
 import { origemEhCallCenter } from '../classificacoes/classificacao.service';
+import { limitesDoMes } from './fechamento.domain';
 import { listarVendas } from '../vendas/vendas.service';
 import { fechamentoCallCenter } from './fechamento.service';
 
@@ -126,6 +127,33 @@ const ajusteBody = z.object({
   acao: z.enum(['INCLUIR_VENDA', 'EXCLUIR_VENDA']),
   motivo: z.string().trim().min(15, 'conte o motivo em pelo menos 15 caracteres').max(600),
 });
+const posicaoBody = z.object({
+  competencia: z.string().regex(competenciaRe, 'use AAAA-MM'),
+  posicao: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use AAAA-MM-DD'),
+});
+/**
+ * Fecha a competência numa data: dali em diante a tela e a API mostram o fechamento como estavam os pedidos no começo desse
+ * dia. Só Financeiro/Admin; a data é do dia seguinte ao fim do mês em diante (um mês só se fecha depois de acabar).
+ */
+callCenterRouter.put('/fechamento/posicao', verCustos, validate({ body: posicaoBody }), async (req, res) => {
+  const b = req.valid.body as z.infer<typeof posicaoBody>;
+  if (b.posicao <= limitesDoMes(b.competencia).ate) throw Errors.conflict('A data de fechamento tem de ser depois do último dia da competência.', 'POSICAO_ANTES_DO_FIM');
+  if (b.posicao > new Date(Date.now() + 24 * 3_600_000).toISOString().slice(0, 10)) throw Errors.conflict('A data de fechamento não pode ser futura.', 'POSICAO_FUTURA');
+  const f = await prisma.fechamentoPosicao.upsert({
+    where: { competencia: b.competencia },
+    create: { ...b, criadoPorId: req.user!.id },
+    update: { posicao: b.posicao, criadoPorId: req.user!.id },
+  });
+  await audit(req, 'call_center.fechamento_posicao_definida', 'fechamento_posicao', b.competencia, { competencia: b.competencia, posicao: b.posicao });
+  ok(res, f);
+});
+callCenterRouter.delete('/fechamento/posicao', verCustos, validate({ query: z.object({ competencia: z.string().regex(competenciaRe) }) }), async (req, res) => {
+  const { competencia } = req.valid.query as { competencia: string };
+  await prisma.fechamentoPosicao.deleteMany({ where: { competencia } });
+  await audit(req, 'call_center.fechamento_posicao_removida', 'fechamento_posicao', competencia, { competencia });
+  ok(res, { removida: true });
+});
+
 callCenterRouter.get('/fechamento/ajustes', verCustos, validate({ query: z.object({ competencia: z.string().regex(competenciaRe) }) }), async (req, res) => {
   const { competencia } = req.valid.query as { competencia: string };
   ok(res, await prisma.fechamentoAjuste.findMany({ where: { competencia }, orderBy: { criadoEm: 'asc' } }));

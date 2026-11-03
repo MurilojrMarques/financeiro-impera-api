@@ -5,11 +5,36 @@ import { calcularFechamento, competenciaDoAlvo, limitesDoMes, limitesDoPeriodo, 
  * O fechamento do Call Center do mês na fórmula da planilha do dono (ver `fechamento.domain.ts`). Lê só os pedidos que
  * importam: pagos no mês, ou estornados/com chargeback no mês (para os pagos antes dele).
  */
-export async function fechamentoCallCenter(alvo: string | { de: string; ate: string }, posicaoEm?: Date): Promise<FechamentoCallCenter> {
+export interface PosicaoDoFechamento {
+  /** AAAA-MM-DD: "como estavam os pedidos no começo deste dia"; nulo = fim do período */
+  em: string | null;
+  /** `FECHAMENTO`: o financeiro fechou o mês nessa data; `INFORMADA`: pedida na consulta; `FIM_DO_PERIODO`: o padrão */
+  fonte: 'FECHAMENTO' | 'INFORMADA' | 'FIM_DO_PERIODO';
+}
+
+/**
+ * A posição que vale: a pedida na consulta, senão a data em que o financeiro FECHOU a competência (mês inteiro), senão o fim do
+ * período. A posição fechada faz a tela e a API mostrarem sempre o mesmo número, o da foto do dia do fechamento.
+ */
+export async function posicaoDoFechamento(competencia: string | null, informada?: Date): Promise<PosicaoDoFechamento & { data?: Date }> {
+  if (informada) return { em: informada.toISOString().slice(0, 10), fonte: 'INFORMADA', data: informada };
+  if (competencia) {
+    const f = await prisma.fechamentoPosicao.findUnique({ where: { competencia }, select: { posicao: true } });
+    if (f) return { em: f.posicao, fonte: 'FECHAMENTO', data: new Date(`${f.posicao}T00:00:00-03:00`) };
+  }
+  return { em: null, fonte: 'FIM_DO_PERIODO' };
+}
+
+export async function fechamentoCallCenter(
+  alvo: string | { de: string; ate: string },
+  posicaoEm?: Date,
+): Promise<FechamentoCallCenter & { posicao: PosicaoDoFechamento }> {
   const { inicio, fim } = typeof alvo === 'string' ? limitesDoMes(alvo) : limitesDoPeriodo(alvo.de, alvo.ate);
-  const ajustes = await ajustesDaCompetencia(competenciaDoAlvo(alvo));
+  const competencia = competenciaDoAlvo(alvo);
+  const ajustes = await ajustesDaCompetencia(competencia);
+  const posicao = await posicaoDoFechamento(competencia, posicaoEm);
   const vendas = await vendasDoFechamento(inicio, fim, ajustes.map((a) => a.pedido));
-  return calcularFechamento(alvo, vendas, posicaoEm, ajustes);
+  return { ...calcularFechamento(alvo, vendas, posicao.data, ajustes), posicao: { em: posicao.em, fonte: posicao.fonte } };
 }
 
 /** Os ajustes manuais da competência (só quando o pedido é o mês inteiro; período livre não os recebe). */

@@ -151,3 +151,56 @@ describe('ajustes manuais do fechamento (rotas)', () => {
     expect(acoes).toEqual(['call_center.fechamento_ajuste_criado', 'call_center.fechamento_ajuste_removido']);
   });
 });
+
+describe('data de fechamento da competência (posição)', () => {
+  const dia = (s: string) => new Date(`${s}-03:00`);
+  beforeAll(async () => {
+    await resetDb();
+    financeiro = await tokenDe('FINANCEIRO');
+    analista = await tokenDe('ANALISTA');
+    await prisma.vendedorPagah.create({ data: { vendedorId: '889380', origem: 'Call', fonte: 'teste' } });
+    await venda('9100001', { vendedorId: '889380' });
+    // vendida em outubro e revertida em 02/11, depois do fim do mês e antes do arquivo do dono (03/11)
+    await venda('9100002', { vendedorId: '889380', status: 'CHARGEBACK', pagoEm: dia('2026-10-20T10:00:00'), chargebackEm: dia('2026-11-02T10:00:00'), perdaEm: dia('2026-11-02T10:00:00') });
+    // revertida em 03/11, que o arquivo do dono ainda mostra como paga
+    await venda('9100003', { vendedorId: '889380', status: 'CHARGEBACK', pagoEm: dia('2026-10-21T10:00:00'), chargebackEm: dia('2026-11-03T06:38:53'), perdaEm: dia('2026-11-03T06:38:53') });
+    await reclassificarTodas();
+  });
+
+  const get = (qs = '?mes=2026-10') => request(app).get(`${api}/call-center/fechamento${qs}`).set('Authorization', financeiro);
+  const put = (b: Record<string, unknown>, token = financeiro) => request(app).put(`${api}/call-center/fechamento/posicao`).set('Authorization', token).send(b);
+
+  it('sem data de fechamento vale o fim do mês: as duas reversões de novembro ainda são venda de outubro', async () => {
+    const r = await get();
+    expect(r.body.data.posicao).toEqual({ em: null, fonte: 'FIM_DO_PERIODO' });
+    expect(r.body.data.vendas.pedidos).toBe(3);
+  });
+
+  it('só o Financeiro fecha; a data tem de ser depois do fim do mês e não pode ser futura', async () => {
+    expect((await put({ competencia: '2026-10', posicao: '2026-11-03' }, analista)).status).toBe(403);
+    expect((await put({ competencia: '2026-10', posicao: '2026-10-31' })).status).toBe(409);
+    expect((await put({ competencia: '2026-10', posicao: '2099-01-01' })).status).toBe(409);
+    expect((await put({ competencia: '2026-10', posicao: 'amanhã' })).status).toBe(422);
+  });
+
+  it('fechado em 03/11, a tela e a API passam a mostrar a foto desse dia, sem ninguém escolher a data', async () => {
+    expect((await put({ competencia: '2026-10', posicao: '2026-11-03' })).status).toBe(200);
+    const r = await get();
+    expect(r.body.data.posicao).toEqual({ em: '2026-11-03', fonte: 'FECHAMENTO' });
+    expect(r.body.data.vendas.pedidos).toBe(2); // sai o revertido em 02/11; o de 03/11 de manhã ainda estava pago no arquivo dele
+    // o mesmo mês pedido pelo período inteiro também usa a data fechada
+    expect((await get('?de=2026-10-01&ate=2026-10-31')).body.data.posicao.fonte).toBe('FECHAMENTO');
+    // um período livre não é uma competência: segue o fim do período
+    expect((await get('?de=2026-10-05&ate=2026-10-31')).body.data.posicao.fonte).toBe('FIM_DO_PERIODO');
+    // a data pedida na consulta vale mais, e fica marcada como informada
+    expect((await get('?mes=2026-10&posicao=2026-11-04')).body.data.posicao).toEqual({ em: '2026-11-04', fonte: 'INFORMADA' });
+  });
+
+  it('desfazer volta ao fim do mês, e as duas ações ficam na auditoria', async () => {
+    const del = await request(app).delete(`${api}/call-center/fechamento/posicao?competencia=2026-10`).set('Authorization', financeiro);
+    expect(del.status).toBe(200);
+    expect((await get()).body.data.posicao.fonte).toBe('FIM_DO_PERIODO');
+    const acoes = (await prisma.auditoria.findMany({ where: { acao: { startsWith: 'call_center.fechamento_posicao' } }, select: { acao: true } })).map((a) => a.acao).sort();
+    expect(acoes).toEqual(['call_center.fechamento_posicao_definida', 'call_center.fechamento_posicao_removida']);
+  });
+});

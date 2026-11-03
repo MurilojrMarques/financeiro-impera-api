@@ -403,6 +403,18 @@ enum AcaoAjusteFechamento {
   EXCLUIR_VENDA // o pedido não conta como venda desta competência, mesmo com `pagoEm` dentro dela
 }
 
+/// A data em que o financeiro FECHOU o mês do Call Center (a posição dos pedidos que vale para aquela competência). O arquivo do
+/// dono é a foto do dia em que ele exporta do Pagah; sem esta data, o fechamento usa o fim do mês, que é correto mas não
+/// bate com o dele. Com ela, a tela e a API mostram sempre o mesmo número, e a data fica à vista.
+model FechamentoPosicao {
+  competencia  String   @id // AAAA-MM
+  posicao      String // AAAA-MM-DD: "como estavam os pedidos no começo deste dia"
+  criadoPorId  String?  @db.Uuid
+  atualizadoEm DateTime @updatedAt @db.Timestamptz
+
+  @@map("fechamento_posicoes")
+}
+
 model FechamentoAjuste {
   id          String                @id @default(uuid()) @db.Uuid
   competencia String // AAAA-MM
