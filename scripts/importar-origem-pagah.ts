@@ -113,8 +113,30 @@ async function main(): Promise<void> {
     );
     gravadas += Math.min(500, preencher.length - i);
   }
+  // A origem é do VENDEDOR (96 vendedores, uma origem cada, em 100% dos pedidos de outubro): guarda a ponte vendedor → origem
+  // para que o pedido novo que chega só com o `vendedorId` do Pagah ganhe a origem sozinho. Vendedor com mais de uma origem
+  // nos pedidos do arquivo não entra (é listado), e um vendedor que já está na tabela só é trocado com --sobrescrever.
+  const pedidosDoArquivo = [...doArquivo.keys()];
+  const conflitos = await prisma.$queryRaw<{ vendedorId: string; origens: string }[]>`
+    SELECT v."vendedorId", string_agg(DISTINCT v.origem, ' | ') AS origens
+      FROM vendas v WHERE v.pedido = ANY(${pedidosDoArquivo}::text[]) AND v."vendedorId" IS NOT NULL AND v.origem IS NOT NULL
+     GROUP BY v."vendedorId" HAVING count(DISTINCT v.origem) > 1`;
+  const mapeados = sobrescrever
+    ? await prisma.$executeRaw`
+        INSERT INTO vendedores_pagah ("vendedorId", "origem", "fonte", "atualizadoEm")
+        SELECT v."vendedorId", min(v.origem), 'importado do Pagah (CSV)', now()
+          FROM vendas v WHERE v.pedido = ANY(${pedidosDoArquivo}::text[]) AND v."vendedorId" IS NOT NULL AND v.origem IS NOT NULL
+         GROUP BY v."vendedorId" HAVING count(DISTINCT v.origem) = 1
+        ON CONFLICT ("vendedorId") DO UPDATE SET origem = EXCLUDED.origem, fonte = EXCLUDED.fonte, "atualizadoEm" = now()`
+    : await prisma.$executeRaw`
+        INSERT INTO vendedores_pagah ("vendedorId", "origem", "fonte", "atualizadoEm")
+        SELECT v."vendedorId", min(v.origem), 'importado do Pagah (CSV)', now()
+          FROM vendas v WHERE v.pedido = ANY(${pedidosDoArquivo}::text[]) AND v."vendedorId" IS NOT NULL AND v.origem IS NOT NULL
+         GROUP BY v."vendedorId" HAVING count(DISTINCT v.origem) = 1
+        ON CONFLICT ("vendedorId") DO NOTHING`;
   const alteradas = await reclassificarTodas();
-  console.log(`\ngravadas ${gravadas} origens | reclassificadas ${alteradas} vendas`);
+  console.log(`\ngravadas ${gravadas} origens | vendedores na tabela: +${mapeados} | reclassificadas ${alteradas} vendas`);
+  if (conflitos.length) console.log(`vendedores com mais de uma origem no arquivo (ficaram de fora): ${conflitos.map((c) => `${c.vendedorId} [${c.origens}]`).join(' ; ')}`);
 }
 
 if (process.argv[1]?.endsWith('importar-origem-pagah.ts')) {

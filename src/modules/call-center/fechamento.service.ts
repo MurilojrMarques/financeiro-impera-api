@@ -1,12 +1,12 @@
 import { prisma } from '../../config/database';
-import { calcularFechamento, limitesDoMes, type FechamentoCallCenter } from './fechamento.domain';
+import { calcularFechamento, limitesDoMes, limitesDoPeriodo, type FechamentoCallCenter } from './fechamento.domain';
 
 /**
  * O fechamento do Call Center do mês na fórmula da planilha do dono (ver `fechamento.domain.ts`). Lê só os pedidos que
  * importam: pagos no mês, ou estornados/com chargeback no mês (para os pagos antes dele).
  */
-export async function fechamentoCallCenter(mes: string): Promise<FechamentoCallCenter> {
-  const { inicio, fim } = limitesDoMes(mes);
+export async function fechamentoCallCenter(alvo: string | { de: string; ate: string }): Promise<FechamentoCallCenter> {
+  const { inicio, fim } = typeof alvo === 'string' ? limitesDoMes(alvo) : limitesDoPeriodo(alvo.de, alvo.ate);
   const vendas = await prisma.venda.findMany({
     where: { OR: [{ pagoEm: { gte: inicio, lt: fim } }, { perdaEm: { gte: inicio, lt: fim }, pagoEm: { lt: inicio } }] },
     select: {
@@ -14,5 +14,5 @@ export async function fechamentoCallCenter(mes: string): Promise<FechamentoCallC
       valorVendaCentavos: true, valorTotalCentavos: true, jurosCentavos: true,
     },
   });
-  return calcularFechamento(mes, vendas);
+  return calcularFechamento(alvo, vendas);
 }

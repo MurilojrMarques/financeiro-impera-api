@@ -154,13 +154,15 @@ export class SyncService {
   }
 
   private async contexto(): Promise<ContextoPersistencia & { redtrackPayoutComoComissao: boolean }> {
-    const [regras, x1, rt] = await Promise.all([
+    const [regras, x1, rt, vendedores] = await Promise.all([
       prisma.regraClassificacao.findMany({ where: { ativa: true } }),
       prisma.configuracaoFinanceira.findUnique({ where: { chave: 'x1.criterio' } }),
       prisma.configuracaoFinanceira.findUnique({ where: { chave: 'redtrack.payoutComoComissao' } }),
+      prisma.vendedorPagah.findMany({ select: { vendedorId: true, origem: true } }),
     ]);
     return {
       regras,
+      origemDoVendedor: new Map(vendedores.map((v) => [v.vendedorId, v.origem])),
       x1: x1 && isCriterioX1(x1.valor) ? x1.valor : null,
       // Doc Pagah 16/10: o payout do RedTrack é a comissão exata. Ligado por padrão; `false` explícito desliga.
       redtrackPayoutComoComissao: rt?.valor !== false,

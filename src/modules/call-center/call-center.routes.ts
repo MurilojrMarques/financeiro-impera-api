@@ -96,9 +96,16 @@ callCenterRouter.get('/margem', verCustos, q, relatorio(async (f) => {
  * menos os chargebacks de pedidos pagos antes do mês. Dinheiro da operação: só FINANCEIRO/ADMIN. Independe do grupo da
  * classificação (a origem do Pagah manda) e diz quantos pedidos ficaram de fora por falta de origem.
  */
-callCenterRouter.get('/fechamento', verCustos, validate({ query: z.object({ mes: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'use AAAA-MM') }) }), async (req, res) => {
-  const { mes } = req.valid.query as { mes: string };
-  ok(res, await fechamentoCallCenter(mes));
+const fechamentoQuery = z
+  .object({
+    mes: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'use AAAA-MM').optional(),
+    de: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use AAAA-MM-DD').optional(),
+    ate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use AAAA-MM-DD').optional(),
+  })
+  .refine((q) => (q.mes !== undefined) !== (q.de !== undefined && q.ate !== undefined), 'informe `mes` OU `de` e `ate`');
+callCenterRouter.get('/fechamento', verCustos, validate({ query: fechamentoQuery }), async (req, res) => {
+  const q = req.valid.query as { mes?: string; de?: string; ate?: string };
+  ok(res, await fechamentoCallCenter(q.mes ?? { de: q.de!, ate: q.ate! }));
 });
 
 callCenterRouter.get('/evolucao', q, serieHandler('dia', cc));

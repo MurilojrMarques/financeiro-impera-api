@@ -42,7 +42,8 @@ export interface LinhaPorMetodo {
 }
 
 export interface FechamentoCallCenter {
-  mes: string;
+  /** AAAA-MM quando o pedido foi de um mês; nulo quando foi um período livre */
+  mes: string | null;
   periodo: { de: string; ate: string };
   vendas: { pedidos: number; totalCentavos: number; porMetodo: LinhaPorMetodo[] };
   chargebacks: { pedidos: number; totalCentavos: number };
@@ -100,11 +101,22 @@ export function limitesDoMes(mes: string): { inicio: Date; fim: Date; de: string
   };
 }
 
+/** Um período livre (AAAA-MM-DD a AAAA-MM-DD, ambos os dias inclusos), em Brasília. */
+export function limitesDoPeriodo(de: string, ate: string): { inicio: Date; fim: Date; de: string; ate: string } {
+  const ok = (x: string) => /^\d{4}-\d{2}-\d{2}$/.test(x) && !Number.isNaN(Date.parse(`${x}T00:00:00-03:00`));
+  if (!ok(de) || !ok(ate) || de > ate) throw new Error(`período inválido: ${de} a ${ate}`);
+  const depois = new Date(Date.UTC(Number(ate.slice(0, 4)), Number(ate.slice(5, 7)) - 1, Number(ate.slice(8, 10)) + 1));
+  const prox = `${depois.getUTCFullYear()}-${String(depois.getUTCMonth() + 1).padStart(2, '0')}-${String(depois.getUTCDate()).padStart(2, '0')}`;
+  return { inicio: new Date(`${de}T00:00:00-03:00`), fim: new Date(`${prox}T00:00:00-03:00`), de, ate };
+}
+
 const dentro = (d: Date | null, a: Date, b: Date) => d !== null && d >= a && d < b;
 const soma = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
 
-export function calcularFechamento(mes: string, vendas: ReadonlyArray<VendaDoFechamento>): FechamentoCallCenter {
-  const { inicio, fim, de, ate } = limitesDoMes(mes);
+/** `alvo` = AAAA-MM (o mês inteiro) ou um período livre. Quem foi pago ANTES do início é de período anterior. */
+export function calcularFechamento(alvo: string | { de: string; ate: string }, vendas: ReadonlyArray<VendaDoFechamento>): FechamentoCallCenter {
+  const mes = typeof alvo === 'string' ? alvo : null;
+  const { inicio, fim, de, ate } = typeof alvo === 'string' ? limitesDoMes(alvo) : limitesDoPeriodo(alvo.de, alvo.ate);
   const foiRevertida = (v: VendaDoFechamento) => v.status === 'ESTORNADO' || v.status === 'CHARGEBACK';
 
   const noMes = vendas.filter((v) => dentro(v.pagoEm, inicio, fim));

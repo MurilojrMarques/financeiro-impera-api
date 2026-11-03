@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calcularFechamento, limitesDoMes, valorDaPlanilha, type VendaDoFechamento } from '../../src/modules/call-center/fechamento.domain';
+import { calcularFechamento, limitesDoMes, limitesDoPeriodo, valorDaPlanilha, type VendaDoFechamento } from '../../src/modules/call-center/fechamento.domain';
 
 /**
  * O fechamento do Call Center na fórmula da planilha do dono (outubro/2026), com casos que ele mesmo mostrou:
@@ -101,5 +101,29 @@ describe('fechamento do Call Center (fórmula da planilha do dono)', () => {
       v({ status: 'ESTORNADO', pagoEm: d('2026-08-30T10:00:00'), perdaEm: d('2026-10-14T10:00:00'), parcelas: 12, valorVendaCentavos: 29_870, valorTotalCentavos: 35_988 }),
     ]);
     expect(r.avisos.possivelJurosNosChargebacks).toEqual({ pedidos: 1, totalCentavos: 35_988 });
+  });
+});
+
+describe('fechamento por período livre', () => {
+  it('o período vai do início do primeiro dia ao início do dia seguinte ao último, em Brasília', () => {
+    const l = limitesDoPeriodo('2026-10-10', '2026-10-12');
+    expect(l.inicio.toISOString()).toBe('2026-10-10T03:00:00.000Z');
+    expect(l.fim.toISOString()).toBe('2026-10-13T03:00:00.000Z');
+    expect(limitesDoPeriodo('2026-12-31', '2026-12-31').fim.toISOString()).toBe('2027-01-01T03:00:00.000Z');
+    expect(() => limitesDoPeriodo('2026-10-12', '2026-10-10')).toThrow();
+    expect(() => limitesDoPeriodo('2026-13-01', '2026-13-02')).toThrow();
+  });
+
+  it('chargeback é de pedido pago antes do início do período, qualquer que seja o tamanho dele', () => {
+    const r = calcularFechamento({ de: '2026-10-10', ate: '2026-10-12' }, [
+      v({ pagoEm: d('2026-10-11T10:00:00') }),
+      v({ status: 'CHARGEBACK', pagoEm: d('2026-10-05T10:00:00'), perdaEm: d('2026-10-11T08:00:00'), valorVendaCentavos: 10_000 }),
+      v({ status: 'CHARGEBACK', pagoEm: d('2026-10-11T09:00:00'), perdaEm: d('2026-10-11T18:00:00') }), // no próprio período: some
+    ]);
+    expect(r.mes).toBeNull();
+    expect(r.periodo).toEqual({ de: '2026-10-10', ate: '2026-10-12' });
+    expect(r.vendas.pedidos).toBe(1);
+    expect(r.chargebacks).toEqual({ pedidos: 1, totalCentavos: 10_000 });
+    expect(r.avisos.revertidasNoMes.pedidos).toBe(1);
   });
 });

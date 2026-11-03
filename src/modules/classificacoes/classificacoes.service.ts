@@ -85,6 +85,17 @@ export async function simularRegra(candidata: RegraCandidata, opts: { substituir
   };
 }
 
+/**
+ * Preenche a `origem` das vendas que ainda não têm, pela tabela de vendedores do Pagah (`vendedores_pagah`). Nunca troca
+ * uma origem que a fonte já trouxe. Devolve quantas vendas ganharam origem.
+ */
+export async function aplicarOrigemDosVendedores(): Promise<number> {
+  return prisma.$executeRaw`
+    UPDATE vendas v SET origem = p.origem
+      FROM vendedores_pagah p
+     WHERE v."vendedorId" = p."vendedorId" AND v.origem IS NULL`;
+}
+
 let reclassificando = false;
 
 /** Reaplica as regras ativas a todas as vendas (em lotes). Executado fora da requisição HTTP. */
@@ -93,6 +104,8 @@ export async function reclassificarTodas(): Promise<number> {
   reclassificando = true;
   let alteradas = 0;
   try {
+    // A origem do Pagah de quem chegou só com o vendedor vem da tabela dele, antes de classificar.
+    await aplicarOrigemDosVendedores();
     const regras = await prisma.regraClassificacao.findMany({ where: { ativa: true } });
     let cursor: string | undefined;
     for (;;) {

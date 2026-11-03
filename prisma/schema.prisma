@@ -381,6 +381,20 @@ model RegraClassificacao {
   @@map("regras_classificacao")
 }
 
+/// A origem do Pagah é uma propriedade do VENDEDOR: em outubro/2026, 96 vendedores tiveram uma origem só cada (83 "Call",
+/// 4 "Whats" e 9 com o próprio nome), em 100% dos pedidos. O Pagah entrega o `vendedorId` em todo pedido de atendimento e
+/// não a origem; esta tabela faz a ponte e é o que decide o Call Center do fechamento do dono. Vendedor novo, sem linha
+/// aqui, cai no canal da planilha e aparece nos avisos do fechamento até alguém dizer a origem dele.
+model VendedorPagah {
+  vendedorId   String   @id // id_user_venda do Pagah, como texto
+  origem       String // "Call", "Whats" ou o nome do vendedor, como o Pagah mostra
+  fonte        String // de onde veio: "importado do Pagah (CSV)", "informado pelo financeiro"…
+  criadoEm     DateTime @default(now()) @db.Timestamptz
+  atualizadoEm DateTime @updatedAt @db.Timestamptz
+
+  @@map("vendedores_pagah")
+}
+
 model Venda {
   id                       String        @id @default(uuid()) @db.Uuid
   pedido                   String        @unique
