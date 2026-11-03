@@ -156,3 +156,41 @@ describe('agregação de venda', () => {
     expect(duas.status).toBe(uma.status);
   });
 });
+
+describe('data de pagamento: HISTORICO (só o dia) x evento "pago" do EVENTOS (o instante)', () => {
+  // Pedido 2820519: Pix gerado em 23/09 e pago em 15/10. O HISTORICO repetiu a data da criação; o Pagah mostra 15/10.
+  const hist = { ...histBase, pedido: '2820519', data_criacao: dt('2026-09-23T22:43:00Z'), data_pagamento: dt('2026-09-23T03:00:00Z'), metodo: 'pix' };
+  const ev = { ...eventoBase, pedido: '2820519', recebido_em: dt('2026-10-15T13:01:09Z'), pago_em: dt('2026-10-15T12:57:47Z'), metodo: 'pix' };
+
+  it('quando as duas fontes discordam por 2 dias ou mais, vale o instante do evento, na ordem HISTORICO → EVENTOS', () => {
+    const r = aplicar(ok(historicoParaFato(hist, 2)), ok(eventoParaFato(ev, 2, null)));
+    expect(r.atributos.pagoEm).toEqual(dt('2026-10-15T12:57:47Z'));
+    const pagamentos = r.eventos.filter((e) => e.tipo === 'PAGAMENTO');
+    expect(pagamentos).toHaveLength(1);
+    expect(pagamentos[0]!.ocorridoEm).toEqual(dt('2026-10-15T12:57:47Z'));
+    expect(r.status).toBe('PAGO');
+  });
+
+  it('e na ordem EVENTOS → HISTORICO o resultado é o mesmo: o HISTORICO não desfaz o evento', () => {
+    const r = aplicar(ok(eventoParaFato(ev, 2, null)), ok(historicoParaFato(hist, 2)));
+    expect(r.atributos.pagoEm).toEqual(dt('2026-10-15T12:57:47Z'));
+    expect(r.eventos.find((e) => e.tipo === 'PAGAMENTO')!.ocorridoEm).toEqual(dt('2026-10-15T12:57:47Z'));
+    expect(r.fonteVerdade).toBe('HISTORICO'); // o resto segue o histórico (comissão exata, campanha…)
+    expect(r.comissao.fonte).toBe('HISTORICO_EXATA');
+  });
+
+  it('refazer o mesmo par de fatos não oscila: aplicar de novo sobre o estado já corrigido dá a mesma data', () => {
+    const r1 = aplicar(ok(historicoParaFato(hist, 2)), ok(eventoParaFato(ev, 2, null)));
+    const r2 = aplicarFatos(
+      { atributos: r1.atributos, comissao: r1.comissao, fonteVerdade: r1.fonteVerdade, eventos: r1.eventos },
+      [ok(historicoParaFato(hist, 2)).fato, ok(eventoParaFato(ev, 2, null)).fato],
+    );
+    expect(r2.atributos.pagoEm).toEqual(dt('2026-10-15T12:57:47Z'));
+  });
+
+  it('diferença de um dia é ruído de fuso: o HISTORICO continua mandando, como sempre', () => {
+    const quase = { ...ev, pedido: '1001', pago_em: dt('2026-10-06T01:00:00Z') };
+    const r = aplicar(ok(historicoParaFato(histBase, 2)), ok(eventoParaFato(quase, 2, null)));
+    expect(r.atributos.pagoEm).toEqual(dt('2026-10-05T13:00:00Z'));
+  });
+});
