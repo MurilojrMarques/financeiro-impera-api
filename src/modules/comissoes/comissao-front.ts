@@ -194,7 +194,7 @@ export type ResultadoApuracaoFront =
 
 /**
  * Carrega as fontes e apura o mês. O MC BR por VSL, com dono e editor, vem do sistema de copy (`vw_vsl_dia`); sem a view ou sem dado do mês,
- * volta ao RedTrack por landing com o cadastro local (`comissao_vsl`), que é o caminho de antes da 0012 do comissionamento.
+ * volta ao RedTrack por landing com o cadastro local (`comissao_vsl`), que é o caminho de antes da 0014 do comissionamento.
  */
 export async function apurarFront(competencia: string): Promise<ResultadoApuracaoFront> {
   const { inicio, fim } = limitesDoMes(competencia);

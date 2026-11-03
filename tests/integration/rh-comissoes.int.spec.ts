@@ -10,13 +10,13 @@ const CW_BRUNO = '22222222-2222-4222-8222-222222222222';
 const CW_NEG = '33333333-3333-4333-8333-333333333333';
 
 const fonte = vi.hoisted(() => ({ estado: 'FECHADO' as 'FECHADO' | 'PROVISORIO', disponivel: true, redtrack: true, landingNova: false, vslDoCopy: null as null | { linhas: unknown[]; cadastro: unknown[] }, bonusDoCopy: null as null | { itens: { copywriter: string; valorCentavos: number }[]; decididas: number } }));
-// o bônus de lead e MLD confirmado no copy (0013): sem decisão no mês (padrão), vale o que o RH lançou
+// o bônus de lead e MLD confirmado no copy (0015): sem decisão no mês (padrão), vale o que o RH lançou
 vi.mock('../../src/integrations/copy-supabase/copy-bonus-lead', () => ({
   bonusLeadDoCopyNoMes: vi.fn(async () => (fonte.bonusDoCopy ? { disponivel: true, ...fonte.bonusDoCopy } : { disponivel: false, motivo: 'SEM_DECISAO', mensagem: 'sem decisão' })),
 }));
-// as VSLs do banco do copy (0012): sem elas (padrão), o motor volta ao RedTrack por landing com o cadastro local
+// as VSLs do banco do copy (0014): sem elas (padrão), o motor volta ao RedTrack por landing com o cadastro local
 vi.mock('../../src/integrations/copy-supabase/copy-vsl', () => ({
-  vslDoCopyNoPeriodo: vi.fn(async () => (fonte.vslDoCopy ? { disponivel: true, ...fonte.vslDoCopy } : { disponivel: false, motivo: 'SEM_VIEW', mensagem: 'sem a 0012' })),
+  vslDoCopyNoPeriodo: vi.fn(async () => (fonte.vslDoCopy ? { disponivel: true, ...fonte.vslDoCopy } : { disponivel: false, motivo: 'SEM_VIEW', mensagem: 'sem a 0014' })),
 }));
 vi.mock('../../src/integrations/copy-supabase/copy-comissao', () => {
   const p = (copywriterId: string, nome: string, mc: number) => ({ copywriterId, nome, mcBrCentavos: mc * 100, mcBrExatoReais: mc, comissaoCentavos: mc * 5, aPagarCentavos: Math.max(0, mc * 5), ativo: true });

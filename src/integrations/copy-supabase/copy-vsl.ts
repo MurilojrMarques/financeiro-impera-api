@@ -4,10 +4,10 @@ import type { LinhaVsl } from '../../modules/comissoes/vsl.domain';
 import { conexao, copyConfigurado } from './copy-comissao';
 
 /**
- * O MC BR por VSL, com dono e editor, do sistema de copy (`public.vw_vsl_dia`, migration 0012 do comissionamento), SOMENTE LEITURA.
+ * O MC BR por VSL, com dono e editor, do sistema de copy (`public.vw_vsl_dia`, migration 0014 do comissionamento), SOMENTE LEITURA.
  * Aqui não se refaz a chave da VSL, o gestor nem o dono: o banco do copy guarda o retrato do RedTrack por landing, a troca de gestor
  * e a decisão de dono e editor (que o Hefesto ou o admin registram, nunca o RH), e muda lá, muda aqui. Sem a view ou sem dado do
- * período, quem chama volta ao RedTrack direto com o cadastro local: nada quebra antes da 0012 estar em produção e carregada.
+ * período, quem chama volta ao RedTrack direto com o cadastro local: nada quebra antes da 0014 estar em produção e carregada.
  */
 export type VslDoCopy =
   | { disponivel: true; linhas: LinhaVsl[]; cadastro: VslCadastro[] }
@@ -59,7 +59,7 @@ async function consultar(de: string, ate: string): Promise<VslDoCopy> {
   try {
     await c.query('BEGIN READ ONLY');
     const existe = await c.query<{ ok: string | null }>(`SELECT to_regclass('public.vw_vsl_dia')::text AS ok`);
-    if (!existe.rows[0]?.ok) return { disponivel: false, motivo: 'SEM_VIEW', mensagem: 'O banco do copy ainda não tem as VSLs (migration 0012).' };
+    if (!existe.rows[0]?.ok) return { disponivel: false, motivo: 'SEM_VIEW', mensagem: 'O banco do copy ainda não tem as VSLs (migration 0014).' };
     const r = await c.query<LinhaDaView>(
       `SELECT vsl, gestor, copywriter_nome, editor, sum(mc_br)::text AS mc
          FROM public.vw_vsl_dia

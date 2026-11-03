@@ -2,11 +2,11 @@ import { logger } from '../../config/logger';
 import { conexao, copyConfigurado } from './copy-comissao';
 
 /**
- * O bônus de lead e MLD confirmado no sistema de copy (`public.vw_bonus_lead`, migration 0013 do comissionamento), SOMENTE LEITURA.
+ * O bônus de lead e MLD confirmado no sistema de copy (`public.vw_bonus_lead`, migration 0015 do comissionamento), SOMENTE LEITURA.
  * O sistema SUGERE a lead que bateu o controle e o admin (Elias) CONFIRMA num botão; o banco do copy guarda quem decidiu e a quem vai, nunca o
  * valor: os R$ 500 são daqui. Só conta o que está `confirmado` e `paga` (lead da própria dona da VSL não paga). Se o copy já tem alguma
  * decisão (confirmada ou recusada) no mês, ele é a fonte do mês inteiro e o lançamento manual do RH não soma por cima; sem decisão (ou sem a
- * view), vale o que o RH lançou, como antes da 0013.
+ * view), vale o que o RH lançou, como antes da 0015.
  */
 export const VALOR_BONUS_LEAD_CENTAVOS = 50_000;
 
@@ -52,7 +52,7 @@ async function consultar(competencia: string): Promise<BonusLeadDoCopy> {
   try {
     await c.query('BEGIN READ ONLY');
     const existe = await c.query<{ ok: string | null }>(`SELECT to_regclass('public.vw_bonus_lead')::text AS ok`);
-    if (!existe.rows[0]?.ok) return { disponivel: false, motivo: 'SEM_VIEW', mensagem: 'O banco do copy ainda não tem o bônus de lead (migration 0013).' };
+    if (!existe.rows[0]?.ok) return { disponivel: false, motivo: 'SEM_VIEW', mensagem: 'O banco do copy ainda não tem o bônus de lead (migration 0015).' };
     const r = await c.query<LinhaBonus>(
       `SELECT autor_nome,
               count(*) FILTER (WHERE estado = 'confirmado' AND paga)::text AS pagas,
