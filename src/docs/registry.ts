@@ -125,6 +125,7 @@ export const ROUTES: RouteDoc[] = [
   rel('/call-center/comissoes', 'Call Center', 'Comissão e taxa do Call Center (campos distintos)'),
   rel('/call-center/custos', 'Call Center', 'Custos atribuídos ao Call Center', FIN),
   rel('/call-center/margem', 'Call Center', 'Margem do Call Center', FIN),
+  rel('/call-center/fechamento', 'Call Center', 'Fechamento do mês na fórmula da planilha do dono (origem Call/Whats, 20%, chargebacks)', FIN),
   rel('/call-center/evolucao', 'Call Center', 'Evolução diária'),
   rel('/call-center/comparativo', 'Call Center', 'Comparativo'),
 

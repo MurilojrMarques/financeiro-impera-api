@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classificar, derivarTipoVenda, type ClassificacaoInput, type RegraClassificacaoInput } from '../../src/modules/classificacoes/classificacao.service';
+import { classificar, derivarTipoVenda, origemEhCallCenter, type ClassificacaoInput, type RegraClassificacaoInput } from '../../src/modules/classificacoes/classificacao.service';
 
 const base: ClassificacaoInput = {
   afiliadoNome: null, tipoBruto: 'front', kitNome: 'Kit 3 potes', origem: null, tipoAtendimento: null,
@@ -82,5 +82,60 @@ describe('canal da planilha (coluna `canal` do EVENTOS) decide o grupo', () => {
     expect(classificar({ ...base, utmSource: 'SMSFunnel' }, [regra]).grupo).toBe('BACKEND_OUTROS');
     expect(classificar({ ...base, utmSource: 'SMSFunnel', canalPlanilha: 'canal novo' }, [regra]).grupo).toBe('BACKEND_OUTROS');
     expect(classificar({ ...base, tipoBruto: 'call center' }, []).grupo).toBe('CALL_CENTER');
+  });
+});
+
+describe('origem do Pagah (fechamento do dono, a partir de 01/10/2026)', () => {
+  const out = new Date('2026-10-15T12:00:00-03:00');
+  const set = new Date('2026-09-15T12:00:00-03:00');
+  const com = (o: Partial<ClassificacaoInput>) => classificar({ ...base, tipoBruto: 'call center', pagoEm: out, ...o }, []);
+
+  it('origem "Call" ou "Whats" é Call Center, mesmo que o canal da planilha diga afiliado ou recuperação (os 16 de outubro)', () => {
+    expect(com({ origem: 'Call', canalPlanilha: 'afiliado' }).grupo).toBe('CALL_CENTER');
+    expect(com({ origem: 'Call', canalPlanilha: 'recuperação de vendas' }).grupo).toBe('CALL_CENTER');
+    expect(com({ origem: 'Whats', canalPlanilha: 'front' }).grupo).toBe('CALL_CENTER');
+  });
+
+  it('vendedor com nome na origem NÃO é Call Center: Jessica Teste, Leonardo Bittencourt, Conversão… vão para Recuperação', () => {
+    for (const origem of ['Jessica Teste', 'Leonardo Bittencourt', 'Conversão', 'Lucas Fernandes', 'Luis Ramos']) {
+      expect(com({ origem, canalPlanilha: 'call center' })).toMatchObject({ grupo: 'RECUPERACAO', motivo: `origem do Pagah = ${origem}` });
+    }
+  });
+
+  it('"Site" que a planilha chamava de Call Center é Front', () => {
+    expect(com({ origem: 'Site', canalPlanilha: 'call center' }).grupo).toBe('FRONT');
+  });
+
+  it('é a fórmula do dono, caixa inclusa: "Jeferson CALL (800K)" não casa com "Call"', () => {
+    expect(origemEhCallCenter('Jeferson CALL (800K)')).toBe(false);
+    expect(com({ origem: 'Jeferson CALL (800K)', canalPlanilha: 'call center' }).grupo).toBe('RECUPERACAO');
+    expect(origemEhCallCenter('Call')).toBe(true);
+    expect(origemEhCallCenter('Whats')).toBe(true);
+    expect(origemEhCallCenter(null)).toBe(false);
+  });
+
+  it('a origem só mexe no Call Center: afiliado e recuperação que ela não contradiz ficam como estavam', () => {
+    expect(com({ origem: 'Matheus Barbosa', canalPlanilha: 'afiliado' }).grupo).toBe('AFILIADO');
+    expect(com({ origem: 'Pedro Carvalho', canalPlanilha: 'recuperação de vendas' }).grupo).toBe('RECUPERACAO');
+    expect(com({ origem: 'Site', canalPlanilha: 'afiliado' }).grupo).toBe('AFILIADO');
+    expect(classificar({ ...base, afiliadoNome: 'André', tipoBruto: 'call center', origem: 'Site', pagoEm: out }, []).grupo).toBe('AFILIADO');
+  });
+
+  it('regra cadastrada à mão que casa com a venda vence a origem do Pagah (WhatsApp de back-end não vira Call Center)', () => {
+    const regraWhats: RegraClassificacaoInput = { id: 'w1', campo: 'ORIGEM', operador: 'IGUAL', valor: 'WhatsApp', grupo: 'BACKEND_OUTROS', prioridade: 5, versao: 1 };
+    expect(classificar({ ...base, tipoBruto: 'front', origem: 'WhatsApp', pagoEm: out }, [regraWhats])).toMatchObject({ grupo: 'BACKEND_OUTROS', regraId: 'w1' });
+    expect(classificar({ ...base, tipoBruto: 'front', origem: 'Whats', pagoEm: out }, [regraWhats]).grupo).toBe('CALL_CENTER'); // a regra não casa com "Whats"
+  });
+
+  it('antes de outubro nada muda: setembro, com nome de atendente "#id" na origem, segue Call Center', () => {
+    expect(com({ origem: 'Vitor Wollenhaupt #410', canalPlanilha: 'call center', pagoEm: set }).grupo).toBe('CALL_CENTER');
+    expect(com({ origem: 'Vitor Wollenhaupt #410', pagoEm: set }).grupo).toBe('CALL_CENTER');
+    expect(com({ origem: 'Site', canalPlanilha: 'call center', pagoEm: set }).grupo).toBe('CALL_CENTER');
+  });
+
+  it('sem origem (o Pagah ainda não a entregou) vale o canal da planilha, como antes', () => {
+    expect(com({ origem: null, canalPlanilha: 'call center' }).grupo).toBe('CALL_CENTER');
+    expect(com({ origem: '  ', canalPlanilha: 'recuperação de vendas' }).grupo).toBe('RECUPERACAO');
+    expect(com({ origem: 'Jessica Teste', canalPlanilha: 'call center', pagoEm: null }).grupo).toBe('CALL_CENTER');
   });
 });

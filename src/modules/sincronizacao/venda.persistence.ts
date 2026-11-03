@@ -177,6 +177,7 @@ export async function persistirFatos(
         checkout: a.checkout,
         canalPlanilha: a.canalPlanilha,
         subcanal: a.subcanal,
+        pagoEm: a.pagoEm,
       },
       ctx.regras,
     );

@@ -13,19 +13,19 @@ export const listarRegras = () => prisma.regraClassificacao.findMany({ select, o
 type VendaParaClassificar = {
   id: string; grupo: TipoGrupo; tipoVenda: string; classificacaoMotivo: string | null; classificacaoRegraId: string | null;
   afiliadoNomeOriginal: string | null; tipoBruto: string | null; kitNome: string | null; origem: string | null; tipoAtendimento: string | null;
-  campanha: string | null; utmSource: string | null; src: string | null; checkout: string | null; canalPlanilha: string | null; subcanal: string | null; loja: { nome: string } | null;
+  campanha: string | null; utmSource: string | null; src: string | null; checkout: string | null; canalPlanilha: string | null; subcanal: string | null; pagoEm: Date | null; loja: { nome: string } | null;
 };
 
 const vendaSelect = {
   id: true, grupo: true, tipoVenda: true, classificacaoMotivo: true, classificacaoRegraId: true, afiliadoNomeOriginal: true,
-  tipoBruto: true, kitNome: true, origem: true, tipoAtendimento: true, campanha: true, utmSource: true, src: true, checkout: true, canalPlanilha: true, subcanal: true,
+  tipoBruto: true, kitNome: true, origem: true, tipoAtendimento: true, campanha: true, utmSource: true, src: true, checkout: true, canalPlanilha: true, subcanal: true, pagoEm: true,
   loja: { select: { nome: true } },
 } as const;
 
 const entrada = (v: VendaParaClassificar) => ({
   afiliadoNome: v.afiliadoNomeOriginal, tipoBruto: v.tipoBruto, kitNome: v.kitNome, origem: v.origem, tipoAtendimento: v.tipoAtendimento,
   loja: v.loja?.nome ?? null, campanha: v.campanha, utmSource: v.utmSource, src: v.src, checkout: v.checkout,
-  canalPlanilha: v.canalPlanilha, subcanal: v.subcanal,
+  canalPlanilha: v.canalPlanilha, subcanal: v.subcanal, pagoEm: v.pagoEm,
 });
 
 export interface RegraCandidata {

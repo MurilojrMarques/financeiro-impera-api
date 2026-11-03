@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { authenticate } from '../../middlewares/auth.middleware';
 import { authorize, Roles } from '../../middlewares/authorization.middleware';
 import { validate } from '../../middlewares/validate.middleware';
@@ -11,7 +12,9 @@ import { filtrosSchema } from '../../shared/validators/filtros';
 import { resultadoFinanceiro } from '../financeiro/financeiro.service';
 import { montarResumoCallCenter } from '../trafego/trafego.domain';
 import { agregarGrupoParaFrete, carregarParametros } from '../trafego/trafego.routes';
+import { ok } from '../../shared/utils/response';
 import { listarVendas } from '../vendas/vendas.service';
+import { fechamentoCallCenter } from './fechamento.service';
 
 export const callCenterRouter = Router();
 callCenterRouter.use(authenticate(), authorize(Roles.ANALISE));
@@ -87,6 +90,16 @@ callCenterRouter.get('/margem', verCustos, q, relatorio(async (f) => {
   const c = await custosCallCenter(f);
   return { receitaCentavos: c.r.metricas.receitaCentavos, custosCentavos: c.custosCentavos, resultadoCentavos: c.resultadoCentavos, margemPercentual: c.margemPercentual };
 }, cc));
+
+/**
+ * O fechamento do mês na fórmula da planilha do dono: vendas de origem Call/Whats pagas no mês e ainda pagas, 20% de comissão,
+ * menos os chargebacks de pedidos pagos antes do mês. Dinheiro da operação: só FINANCEIRO/ADMIN. Independe do grupo da
+ * classificação (a origem do Pagah manda) e diz quantos pedidos ficaram de fora por falta de origem.
+ */
+callCenterRouter.get('/fechamento', verCustos, validate({ query: z.object({ mes: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'use AAAA-MM') }) }), async (req, res) => {
+  const { mes } = req.valid.query as { mes: string };
+  ok(res, await fechamentoCallCenter(mes));
+});
 
 callCenterRouter.get('/evolucao', q, serieHandler('dia', cc));
 callCenterRouter.get('/comparativo', q, comparativoHandler(cc));
