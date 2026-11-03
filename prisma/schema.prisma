@@ -395,6 +395,27 @@ model VendedorPagah {
   @@map("vendedores_pagah")
 }
 
+/// O que o financeiro decidiu sobre um pedido no fechamento do Call Center de uma competência, quando o dado do Pagah e o
+/// arquivo do dono discordam e os dois lados foram conferidos. Nunca muda a venda: só o fechamento daquele mês, e aparece
+/// na tela e na resposta da API com o motivo e quem decidiu.
+enum AcaoAjusteFechamento {
+  INCLUIR_VENDA // o pedido conta como venda desta competência, mesmo com `pagoEm` fora dela
+  EXCLUIR_VENDA // o pedido não conta como venda desta competência, mesmo com `pagoEm` dentro dela
+}
+
+model FechamentoAjuste {
+  id          String                @id @default(uuid()) @db.Uuid
+  competencia String // AAAA-MM
+  pedido      String
+  acao        AcaoAjusteFechamento
+  motivo      String
+  criadoPorId String?               @db.Uuid
+  criadoEm    DateTime              @default(now()) @db.Timestamptz
+
+  @@unique([competencia, pedido])
+  @@map("fechamento_ajustes")
+}
+
 model Venda {
   id                       String        @id @default(uuid()) @db.Uuid
   pedido                   String        @unique

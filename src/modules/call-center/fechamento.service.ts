@@ -1,5 +1,5 @@
 import { prisma } from '../../config/database';
-import { calcularFechamento, limitesDoMes, limitesDoPeriodo, type FechamentoCallCenter, type VendaDoFechamento } from './fechamento.domain';
+import { calcularFechamento, competenciaDoAlvo, limitesDoMes, limitesDoPeriodo, type AjusteDoFechamento, type FechamentoCallCenter, type VendaDoFechamento } from './fechamento.domain';
 
 /**
  * O fechamento do Call Center do mês na fórmula da planilha do dono (ver `fechamento.domain.ts`). Lê só os pedidos que
@@ -7,8 +7,16 @@ import { calcularFechamento, limitesDoMes, limitesDoPeriodo, type FechamentoCall
  */
 export async function fechamentoCallCenter(alvo: string | { de: string; ate: string }, posicaoEm?: Date): Promise<FechamentoCallCenter> {
   const { inicio, fim } = typeof alvo === 'string' ? limitesDoMes(alvo) : limitesDoPeriodo(alvo.de, alvo.ate);
-  const vendas = await vendasDoFechamento(inicio, fim);
-  return calcularFechamento(alvo, vendas, posicaoEm);
+  const ajustes = await ajustesDaCompetencia(competenciaDoAlvo(alvo));
+  const vendas = await vendasDoFechamento(inicio, fim, ajustes.map((a) => a.pedido));
+  return calcularFechamento(alvo, vendas, posicaoEm, ajustes);
+}
+
+/** Os ajustes manuais da competência (só quando o pedido é o mês inteiro; período livre não os recebe). */
+export async function ajustesDaCompetencia(competencia: string | null): Promise<AjusteDoFechamento[]> {
+  if (!competencia) return [];
+  const linhas = await prisma.fechamentoAjuste.findMany({ where: { competencia }, select: { pedido: true, acao: true, motivo: true }, orderBy: { criadoEm: 'asc' } });
+  return linhas;
 }
 
 /**
@@ -19,11 +27,12 @@ export async function fechamentoCallCenter(alvo: string | { de: string; ate: str
  * uma perda só, e fica o chargeback), o que serve ao financeiro mas não a este fechamento, que pergunta "em que dia o pedido
  * deixou de valer".
  */
-export async function vendasDoFechamento(inicio: Date, fim: Date): Promise<VendaDoFechamento[]> {
+export async function vendasDoFechamento(inicio: Date, fim: Date, pedidosAjustados: string[] = []): Promise<VendaDoFechamento[]> {
   const noPeriodo = { gte: inicio, lt: fim };
   const linhas = await prisma.venda.findMany({
     where: {
       OR: [
+        ...(pedidosAjustados.length > 0 ? [{ pedido: { in: pedidosAjustados } }] : []),
         { pagoEm: noPeriodo },
         { pagoEm: { lt: inicio }, OR: [{ estornadoEm: noPeriodo }, { chargebackEm: noPeriodo }, { perdaEm: noPeriodo }] },
       ],

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calcularFechamento, limitesDoMes, limitesDoPeriodo, valorDaPlanilha, type VendaDoFechamento } from '../../src/modules/call-center/fechamento.domain';
+import { calcularFechamento, competenciaDoAlvo, limitesDoMes, limitesDoPeriodo, valorDaPlanilha, type VendaDoFechamento } from '../../src/modules/call-center/fechamento.domain';
 
 /**
  * O fechamento do Call Center na fórmula da planilha do dono (outubro/2026), com casos que ele mesmo mostrou:
@@ -153,5 +153,46 @@ describe('posição em (reproduzir um arquivo exportado depois do fim do períod
     const depois = calcularFechamento('2026-10', [rev], d('2026-11-04T00:00:00'));
     expect(depois.vendas.pedidos).toBe(0);
     expect(depois.avisos.revertidasNoMes.pedidos).toBe(1);
+  });
+});
+
+describe('ajustes manuais da competência', () => {
+  const setembro = v({ pedido: 'A100', pagoEm: d('2026-09-30T21:23:59'), valorVendaCentavos: 19_700, valorTotalCentavos: 19_700, metodoPagamento: 'Pix' });
+  const inc = { pedido: 'A100', acao: 'INCLUIR_VENDA' as const, motivo: 'pago em 30/09 mas o export do Pagah do dono o traz em outubro' };
+
+  it('incluir conta o pedido como venda da competência, com o efeito à vista (e sem ele o pedido de setembro não entra)', () => {
+    expect(calcularFechamento('2026-10', [setembro, v({})]).vendas.pedidos).toBe(1);
+    const r = calcularFechamento('2026-10', [setembro, v({})], undefined, [inc]);
+    expect(r.vendas.pedidos).toBe(2);
+    expect(r.vendas.totalCentavos).toBe(39_700 + 19_700);
+    expect(r.ajustes).toEqual([{ ...inc, aplicado: true, efeitoCentavos: 19_700 }]);
+    expect(r.vendas.porMetodo.find((m) => m.metodo === 'PIX')).toMatchObject({ pedidos: 1, totalCentavos: 19_700 });
+  });
+
+  it('excluir tira do mês um pedido que contava, com efeito negativo', () => {
+    const r = calcularFechamento('2026-10', [v({ pedido: 'B1' }), v({})], undefined, [{ pedido: 'B1', acao: 'EXCLUIR_VENDA', motivo: 'conferido no Pagah: pago em setembro' }]);
+    expect(r.vendas.pedidos).toBe(1);
+    expect(r.ajustes[0]).toMatchObject({ aplicado: true, efeitoCentavos: -39_700 });
+  });
+
+  it('ajuste sem efeito aparece como não aplicado: pedido já contado, já revertido ou sem origem Call/Whats', () => {
+    const natural = v({ pedido: 'N1' });
+    const revertido = v({ pedido: 'R1', pagoEm: d('2026-09-30T22:00:00'), status: 'CHARGEBACK', perdaEm: d('2026-10-05T10:00:00') });
+    const site = v({ pedido: 'S1', origem: 'Site', pagoEm: d('2026-09-30T22:00:00') });
+    const r = calcularFechamento('2026-10', [natural, revertido, site], undefined, [
+      { pedido: 'N1', acao: 'INCLUIR_VENDA', motivo: 'já era venda de outubro' },
+      { pedido: 'R1', acao: 'INCLUIR_VENDA', motivo: 'foi revertido em outubro' },
+      { pedido: 'S1', acao: 'INCLUIR_VENDA', motivo: 'não é Call nem Whats' },
+    ]);
+    expect(r.vendas.pedidos).toBe(1); // só o natural, uma vez
+    expect(r.ajustes.map((a) => [a.pedido, a.aplicado, a.efeitoCentavos])).toEqual([['N1', false, 0], ['R1', false, 0], ['S1', false, 0]]);
+  });
+
+  it('a competência é o mês inteiro, pelo mês ou pelo período do dia 1 ao último dia; período livre não recebe ajuste', () => {
+    expect(competenciaDoAlvo('2026-10')).toBe('2026-10');
+    expect(competenciaDoAlvo({ de: '2026-10-01', ate: '2026-10-31' })).toBe('2026-10');
+    expect(competenciaDoAlvo({ de: '2026-02-01', ate: '2026-02-28' })).toBe('2026-02');
+    expect(competenciaDoAlvo({ de: '2026-10-05', ate: '2026-10-31' })).toBeNull();
+    expect(competenciaDoAlvo({ de: '2026-10-01', ate: '2026-10-30' })).toBeNull();
   });
 });

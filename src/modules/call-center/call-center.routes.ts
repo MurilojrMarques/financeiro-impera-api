@@ -12,7 +12,11 @@ import { filtrosSchema } from '../../shared/validators/filtros';
 import { resultadoFinanceiro } from '../financeiro/financeiro.service';
 import { montarResumoCallCenter } from '../trafego/trafego.domain';
 import { agregarGrupoParaFrete, carregarParametros } from '../trafego/trafego.routes';
-import { ok } from '../../shared/utils/response';
+import { prisma } from '../../config/database';
+import { Errors } from '../../shared/errors/app-error';
+import { audit } from '../../shared/services/audit.service';
+import { created, ok } from '../../shared/utils/response';
+import { origemEhCallCenter } from '../classificacoes/classificacao.service';
 import { listarVendas } from '../vendas/vendas.service';
 import { fechamentoCallCenter } from './fechamento.service';
 
@@ -108,6 +112,42 @@ const fechamentoQuery = z
 callCenterRouter.get('/fechamento', verCustos, validate({ query: fechamentoQuery }), async (req, res) => {
   const q = req.valid.query as { mes?: string; de?: string; ate?: string; posicao?: string };
   ok(res, await fechamentoCallCenter(q.mes ?? { de: q.de!, ate: q.ate! }, q.posicao ? new Date(`${q.posicao}T00:00:00-03:00`) : undefined));
+});
+
+/**
+ * Ajustes manuais do fechamento: quando o dado do Pagah e o arquivo do dono discordam sobre um pedido e as duas pontas foram
+ * conferidas, o financeiro decide em que competência ele conta. O ajuste nunca muda a venda, só o fechamento daquele mês, e
+ * aparece na tela e na resposta com o motivo (o fechamento não esconde que houve ajuste). Só FINANCEIRO/ADMIN.
+ */
+const competenciaRe = /^\d{4}-(0[1-9]|1[0-2])$/;
+const ajusteBody = z.object({
+  competencia: z.string().regex(competenciaRe, 'use AAAA-MM'),
+  pedido: z.string().regex(/^\d{3,12}$/, 'número do pedido'),
+  acao: z.enum(['INCLUIR_VENDA', 'EXCLUIR_VENDA']),
+  motivo: z.string().trim().min(15, 'conte o motivo em pelo menos 15 caracteres').max(600),
+});
+callCenterRouter.get('/fechamento/ajustes', verCustos, validate({ query: z.object({ competencia: z.string().regex(competenciaRe) }) }), async (req, res) => {
+  const { competencia } = req.valid.query as { competencia: string };
+  ok(res, await prisma.fechamentoAjuste.findMany({ where: { competencia }, orderBy: { criadoEm: 'asc' } }));
+});
+callCenterRouter.post('/fechamento/ajustes', verCustos, validate({ body: ajusteBody }), async (req, res) => {
+  const b = req.valid.body as z.infer<typeof ajusteBody>;
+  const venda = await prisma.venda.findUnique({ where: { pedido: b.pedido }, select: { origem: true } });
+  if (!venda) throw Errors.notFound('Pedido não encontrado na base');
+  if (!origemEhCallCenter(venda.origem)) throw Errors.conflict('O ajuste vale para pedido de origem Call ou Whats; este não tem essa origem.', 'AJUSTE_SEM_EFEITO');
+  const existente = await prisma.fechamentoAjuste.findUnique({ where: { competencia_pedido: { competencia: b.competencia, pedido: b.pedido } } });
+  if (existente) throw Errors.conflict('Este pedido já tem um ajuste nesta competência. Remova o anterior para trocar.', 'AJUSTE_JA_EXISTE');
+  const novo = await prisma.fechamentoAjuste.create({ data: { ...b, criadoPorId: req.user!.id } });
+  await audit(req, 'call_center.fechamento_ajuste_criado', 'fechamento_ajuste', novo.id, { competencia: b.competencia, pedido: b.pedido, acao: b.acao });
+  created(res, novo);
+});
+callCenterRouter.delete('/fechamento/ajustes/:id', verCustos, validate({ params: z.object({ id: z.string().uuid() }) }), async (req, res) => {
+  const { id } = req.valid.params as { id: string };
+  const ajuste = await prisma.fechamentoAjuste.findUnique({ where: { id } });
+  if (!ajuste) throw Errors.notFound('Ajuste não encontrado');
+  await prisma.fechamentoAjuste.delete({ where: { id } });
+  await audit(req, 'call_center.fechamento_ajuste_removido', 'fechamento_ajuste', id, { competencia: ajuste.competencia, pedido: ajuste.pedido, acao: ajuste.acao });
+  ok(res, { removido: true });
 });
 
 callCenterRouter.get('/evolucao', q, serieHandler('dia', cc));

@@ -37,6 +37,20 @@ export interface VendaDoFechamento {
   jurosCentavos: number | null;
 }
 
+/** O que o financeiro decidiu sobre um pedido nesta competência (ver `FechamentoAjuste` no schema). */
+export interface AjusteDoFechamento {
+  pedido: string;
+  acao: 'INCLUIR_VENDA' | 'EXCLUIR_VENDA';
+  motivo: string;
+}
+
+export interface AjusteAplicado extends AjusteDoFechamento {
+  /** `false` quando o ajuste não encontrou efeito (pedido ausente, sem origem Call/Whats, já revertido ou já contado) */
+  aplicado: boolean;
+  /** quanto o ajuste mexeu nas vendas: positivo ao incluir, negativo ao excluir; 0 se não aplicado */
+  efeitoCentavos: number;
+}
+
 export interface LinhaPorMetodo {
   metodo: MetodoFechamento;
   pedidos: number;
@@ -56,6 +70,8 @@ export interface FechamentoCallCenter {
     descontoChargebackCentavos: number;
     liquidaCentavos: number;
   };
+  /** os ajustes manuais da competência, com o motivo e o efeito de cada um: o fechamento nunca esconde que houve ajuste */
+  ajustes: AjusteAplicado[];
   avisos: {
     /** vendas pagas no mês, ainda pagas, sem `origem` do Pagah: não entram e não dá para saber se são Call/Whats */
     semOrigem: { pedidos: number; totalCentavos: number };
@@ -104,6 +120,13 @@ export function limitesDoMes(mes: string): { inicio: Date; fim: Date; de: string
   };
 }
 
+/** A competência (AAAA-MM) quando o pedido é o mês inteiro: pelo mês (`2026-10`) ou por um período que vai do dia 1 ao último dia. */
+export function competenciaDoAlvo(alvo: string | { de: string; ate: string }): string | null {
+  if (typeof alvo === 'string') return alvo;
+  const mes = alvo.de.slice(0, 7);
+  return alvo.de === `${mes}-01` && alvo.ate === limitesDoMes(mes).ate ? mes : null;
+}
+
 /** Um período livre (AAAA-MM-DD a AAAA-MM-DD, ambos os dias inclusos), em Brasília. */
 export function limitesDoPeriodo(de: string, ate: string): { inicio: Date; fim: Date; de: string; ate: string } {
   const ok = (x: string) => /^\d{4}-\d{2}-\d{2}$/.test(x) && !Number.isNaN(Date.parse(`${x}T00:00:00-03:00`));
@@ -117,6 +140,7 @@ const dentro = (d: Date | null, a: Date, b: Date) => d !== null && d >= a && d <
 const soma = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
 
 export interface ConjuntosDoFechamento {
+  ajustes: AjusteAplicado[];
   vendidas: VendaDoFechamento[];
   chargebacks: VendaDoFechamento[];
   semOrigem: VendaDoFechamento[];
@@ -135,6 +159,7 @@ export function separarFechamento(
   alvo: string | { de: string; ate: string },
   vendas: ReadonlyArray<VendaDoFechamento>,
   posicaoEm?: Date,
+  ajustes: ReadonlyArray<AjusteDoFechamento> = [],
 ): ConjuntosDoFechamento & { inicio: Date; fim: Date; de: string; ate: string; mes: string | null } {
   const mes = typeof alvo === 'string' ? alvo : null;
   const { inicio, fim, de, ate } = typeof alvo === 'string' ? limitesDoMes(alvo) : limitesDoPeriodo(alvo.de, alvo.ate);
@@ -148,9 +173,28 @@ export function separarFechamento(
   const chargebackDoPeriodo = (v: VendaDoFechamento) =>
     foiRevertida(v) && v.pagoEm !== null && v.pagoEm < inicio && dentro(v.perdaEm, inicio, fim);
 
+  // Ajustes manuais da competência: incluir um pedido que o Pagah data fora do período (e o dono conta nele), ou tirar um que
+  // não deve contar. Só valem para pedido de origem Call/Whats que ainda não foi revertido na posição.
+  const porAcao = (a: AjusteDoFechamento['acao']) => new Map(ajustes.filter((x) => x.acao === a).map((x) => [x.pedido, x]));
+  const incluir = porAcao('INCLUIR_VENDA');
+  const excluir = porAcao('EXCLUIR_VENDA');
+  const naturais = callNoMes.filter((v) => !revertidaAteAPosicao(v));
+  const jaContados = new Set(naturais.map((v) => v.pedido));
+  const extras = vendas.filter((v) => incluir.has(v.pedido) && !jaContados.has(v.pedido) && origemEhCallCenter(v.origem) && !revertidaAteAPosicao(v));
+  const vendidas = [...naturais, ...extras].filter((v) => !excluir.has(v.pedido));
+  const contadas = new Set(vendidas.map((v) => v.pedido));
+  const porPedido = new Map(vendas.map((v) => [v.pedido, v]));
+  const ajustesAplicados: AjusteAplicado[] = ajustes.map((a) => {
+    const v = porPedido.get(a.pedido);
+    const aplicado = a.acao === 'INCLUIR_VENDA' ? contadas.has(a.pedido) && !jaContados.has(a.pedido) : jaContados.has(a.pedido) && !contadas.has(a.pedido);
+    const valor = v ? valorDaPlanilha(v) : 0;
+    return { ...a, aplicado, efeitoCentavos: !aplicado ? 0 : a.acao === 'INCLUIR_VENDA' ? valor : -valor };
+  });
+
   return {
     inicio, fim, de, ate, mes,
-    vendidas: callNoMes.filter((v) => !revertidaAteAPosicao(v)),
+    ajustes: ajustesAplicados,
+    vendidas,
     revertidasNoMes: callNoMes.filter(revertidaAteAPosicao),
     revertidasDepois: callNoMes.filter((v) => foiRevertida(v) && v.perdaEm !== null && v.perdaEm >= posicao),
     semOrigem: noMes.filter((v) => !revertidaAteAPosicao(v) && !v.origem?.trim()),
@@ -164,8 +208,9 @@ export function calcularFechamento(
   alvo: string | { de: string; ate: string },
   vendas: ReadonlyArray<VendaDoFechamento>,
   posicaoEm?: Date,
+  ajustes: ReadonlyArray<AjusteDoFechamento> = [],
 ): FechamentoCallCenter {
-  const { mes, de, ate, vendidas, chargebacks, semOrigem, chargebacksSemOrigem: cbSemOrigem, revertidasNoMes, revertidasDepois } = separarFechamento(alvo, vendas, posicaoEm);
+  const { mes, de, ate, ajustes: ajustesAplicados, vendidas, chargebacks, semOrigem, chargebacksSemOrigem: cbSemOrigem, revertidasNoMes, revertidasDepois } = separarFechamento(alvo, vendas, posicaoEm, ajustes);
 
   const porMetodo: LinhaPorMetodo[] = (['CARTAO', 'BOLETO', 'PIX'] as const).map((metodo) => {
     const linhas = vendidas.filter((v) => metodoDe(v.metodoPagamento) === metodo);
@@ -193,6 +238,7 @@ export function calcularFechamento(
       descontoChargebackCentavos: descontoCb,
       liquidaCentavos: comissaoVendas - descontoCb,
     },
+    ajustes: ajustesAplicados,
     avisos: {
       semOrigem: resumo(semOrigem),
       chargebacksSemOrigem: { pedidos: cbSemOrigem.length, totalCentavos: soma(cbSemOrigem.map((v) => v.valorVendaCentavos)) },

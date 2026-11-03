@@ -88,3 +88,66 @@ describe('origem do Pagah pelo vendedor e fechamento do Call Center', () => {
     expect(proibido.status).toBe(403);
   });
 });
+
+describe('ajustes manuais do fechamento (rotas)', () => {
+  beforeAll(async () => {
+    await resetDb();
+    financeiro = await tokenDe('FINANCEIRO');
+    analista = await tokenDe('ANALISTA');
+    await prisma.vendedorPagah.create({ data: { vendedorId: '889380', origem: 'Call', fonte: 'teste' } });
+    await venda('9000001', { vendedorId: '889380' }); // venda de outubro
+    // pago às 21:23:59 de 30/09: é de setembro, e o export do dono o traz em outubro
+    await venda('9000002', { vendedorId: '889380', pagoEm: new Date('2026-09-30T21:23:59-03:00'), metodoPagamento: 'Pix', valorVendaCentavos: 19_700, valorTotalCentavos: 19_700 });
+    await venda('9000003', { origem: 'Site' });
+    await reclassificarTodas();
+  });
+
+  const post = (b: Record<string, unknown>, token = financeiro) => request(app).post(`${api}/call-center/fechamento/ajustes`).set('Authorization', token).send(b);
+  const get = (qs: string) => request(app).get(`${api}/call-center/fechamento${qs}`).set('Authorization', financeiro);
+  const motivo = 'Pago em 30/09 21:23:59 (evento do Pagah); o export do dono o lista em 01/10 e o fechamento dele o inclui.';
+  const ajuste = { competencia: '2026-10', pedido: '9000002', acao: 'INCLUIR_VENDA', motivo };
+
+  it('só o Financeiro ajusta; motivo curto, pedido inexistente ou sem origem Call/Whats são recusados', async () => {
+    expect((await post(ajuste, analista)).status).toBe(403);
+    expect((await post({ ...ajuste, motivo: 'curto' })).status).toBe(422);
+    expect((await post({ ...ajuste, pedido: '9999999' })).status).toBe(404);
+    expect((await post({ ...ajuste, pedido: '9000003' })).status).toBe(409); // origem Site
+  });
+
+  it('sem ajuste o pedido de setembro não conta; com ele, conta e o ajuste fica à vista, com o efeito', async () => {
+    const antes = await get('?mes=2026-10');
+    expect(antes.body.data.vendas.pedidos).toBe(1);
+    expect(antes.body.data.ajustes).toEqual([]);
+
+    const criado = await post(ajuste);
+    expect(criado.status).toBe(201);
+    expect(criado.body.data.criadoPorId).toBeTruthy();
+
+    const depois = await get('?mes=2026-10');
+    expect(depois.body.data.vendas.pedidos).toBe(2);
+    expect(depois.body.data.vendas.totalCentavos).toBe(39_700 + 19_700);
+    expect(depois.body.data.ajustes).toEqual([{ pedido: '9000002', acao: 'INCLUIR_VENDA', motivo, aplicado: true, efeitoCentavos: 19_700 }]);
+  });
+
+  it('o ajuste vale para o mês inteiro pedido por período, não para um período livre, e não muda a venda nem setembro', async () => {
+    expect((await get('?de=2026-10-01&ate=2026-10-31')).body.data.vendas.pedidos).toBe(2);
+    const livre = await get('?de=2026-10-05&ate=2026-10-31');
+    expect(livre.body.data.ajustes).toEqual([]);
+    expect(livre.body.data.vendas.pedidos).toBe(1);
+    // setembro segue com o pedido, porque o ajuste é da competência 2026-10
+    expect((await get('?mes=2026-09')).body.data.vendas.pedidos).toBe(1);
+    expect((await prisma.venda.findUniqueOrThrow({ where: { pedido: '9000002' } })).pagoEm?.toISOString()).toBe('2026-10-01T00:23:59.000Z');
+  });
+
+  it('não repete o ajuste da mesma competência e pedido; remover desfaz e tudo fica na auditoria', async () => {
+    expect((await post(ajuste)).status).toBe(409);
+    const lista = await request(app).get(`${api}/call-center/fechamento/ajustes?competencia=2026-10`).set('Authorization', financeiro);
+    expect(lista.body.data).toHaveLength(1);
+    const id = lista.body.data[0].id as string;
+    const del = await request(app).delete(`${api}/call-center/fechamento/ajustes/${id}`).set('Authorization', financeiro);
+    expect(del.status).toBe(200);
+    expect((await get('?mes=2026-10')).body.data.vendas.pedidos).toBe(1);
+    const acoes = (await prisma.auditoria.findMany({ where: { acao: { startsWith: 'call_center.fechamento_ajuste' } }, select: { acao: true } })).map((a) => a.acao).sort();
+    expect(acoes).toEqual(['call_center.fechamento_ajuste_criado', 'call_center.fechamento_ajuste_removido']);
+  });
+});
