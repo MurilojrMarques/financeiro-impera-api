@@ -67,10 +67,22 @@ describe('fechamento do Call Center (fórmula da planilha do dono)', () => {
     expect(r.avisos.revertidasNoMes).toMatchObject({ pedidos: 2 });
   });
 
-  it('venda de outubro revertida só depois do mês não entra agora e fica nos avisos', () => {
-    const r = calcularFechamento('2026-10', [v({ status: 'CHARGEBACK', perdaEm: d('2026-11-02T10:00:00') }), v({})]);
+  it('venda de outubro revertida só depois do mês AINDA é venda de outubro (posição no fim do mês); a reversão pesa em novembro', () => {
+    const out = v({ status: 'CHARGEBACK', perdaEm: d('2026-11-02T10:00:00'), valorVendaCentavos: 12_300 });
+    const r = calcularFechamento('2026-10', [out, v({})]);
+    expect(r.vendas.pedidos).toBe(2);
+    expect(r.avisos.revertidasDepois).toMatchObject({ pedidos: 1 });
+    expect(r.avisos.revertidasNoMes.pedidos).toBe(0);
+    // e em novembro ela é chargeback de pedido pago antes do mês
+    const nov = calcularFechamento('2026-11', [out]);
+    expect(nov.vendas.pedidos).toBe(0);
+    expect(nov.chargebacks).toEqual({ pedidos: 1, totalCentavos: 12_300 });
+  });
+
+  it('reversão sem data conta como já revertida: não entra como venda', () => {
+    const r = calcularFechamento('2026-10', [v({ status: 'ESTORNADO', perdaEm: null }), v({})]);
     expect(r.vendas.pedidos).toBe(1);
-    expect(r.avisos.revertidasDepois.pedidos).toBe(1);
+    expect(r.avisos.revertidasNoMes.pedidos).toBe(1);
   });
 
   it('chargeback é de pedido pago antes do mês e revertido dentro dele, a 20%', () => {
@@ -125,5 +137,21 @@ describe('fechamento por período livre', () => {
     expect(r.vendas.pedidos).toBe(1);
     expect(r.chargebacks).toEqual({ pedidos: 1, totalCentavos: 10_000 });
     expect(r.avisos.revertidasNoMes.pedidos).toBe(1);
+  });
+});
+
+describe('posição em (reproduzir um arquivo exportado depois do fim do período)', () => {
+  const rev = v({ status: 'CHARGEBACK', pagoEm: d('2026-10-28T10:00:00'), perdaEm: d('2026-11-03T09:00:00') });
+
+  it('por padrão a posição é o fim do período: reversão de novembro não tira a venda de outubro', () => {
+    expect(calcularFechamento('2026-10', [rev]).vendas.pedidos).toBe(1);
+  });
+
+  it('com a posição no dia da exportação, quem já tinha sido revertido até lá some e quem ainda não, fica', () => {
+    const antes = calcularFechamento('2026-10', [rev], d('2026-11-03T00:00:00'));
+    expect(antes.vendas.pedidos).toBe(1); // reverteu às 09:00 do dia 3, depois da posição (00:00 do dia 3)
+    const depois = calcularFechamento('2026-10', [rev], d('2026-11-04T00:00:00'));
+    expect(depois.vendas.pedidos).toBe(0);
+    expect(depois.avisos.revertidasNoMes.pedidos).toBe(1);
   });
 });

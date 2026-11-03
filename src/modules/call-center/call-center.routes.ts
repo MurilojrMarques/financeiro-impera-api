@@ -101,11 +101,13 @@ const fechamentoQuery = z
     mes: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'use AAAA-MM').optional(),
     de: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use AAAA-MM-DD').optional(),
     ate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use AAAA-MM-DD').optional(),
+    /** "como estava" no começo deste dia (AAAA-MM-DD); padrão: o fim do período. Serve para reproduzir um arquivo exportado depois. */
+    posicao: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use AAAA-MM-DD').optional(),
   })
   .refine((q) => (q.mes !== undefined) !== (q.de !== undefined && q.ate !== undefined), 'informe `mes` OU `de` e `ate`');
 callCenterRouter.get('/fechamento', verCustos, validate({ query: fechamentoQuery }), async (req, res) => {
-  const q = req.valid.query as { mes?: string; de?: string; ate?: string };
-  ok(res, await fechamentoCallCenter(q.mes ?? { de: q.de!, ate: q.ate! }));
+  const q = req.valid.query as { mes?: string; de?: string; ate?: string; posicao?: string };
+  ok(res, await fechamentoCallCenter(q.mes ?? { de: q.de!, ate: q.ate! }, q.posicao ? new Date(`${q.posicao}T00:00:00-03:00`) : undefined));
 });
 
 callCenterRouter.get('/evolucao', q, serieHandler('dia', cc));

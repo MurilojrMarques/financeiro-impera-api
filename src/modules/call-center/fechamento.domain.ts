@@ -5,9 +5,12 @@ import { searchKey } from '../../shared/utils/text';
  * O fechamento do Call Center do dono, na fórmula da planilha dele ("Fechamento <empresa>", aba Fechamento), sem desvio.
  * É o número que ele fecha na mão com o Pagah, e o sistema passa a reproduzi-lo para conferir:
  *
- *   VENDAS = pedido com `origem` "Call" ou "Whats" (a `QUERY` dele), PAGO NO MÊS e ainda pago hoje (o export dele só traz
- *            pedido com status Pago): quem foi estornado ou virou chargeback no próprio mês some, sem entrar como venda
- *            nem como chargeback. Valor: cartão = `valor_sem_juros`; boleto e pix = `total_pedido` (colunas J e I).
+ *   VENDAS = pedido com `origem` "Call" ou "Whats" (a `QUERY` dele), PAGO NO MÊS e ainda pago NO FIM DELE: quem foi
+ *            estornado ou virou chargeback dentro do mês some, sem entrar como venda nem como chargeback. Quem só foi
+ *            revertido depois do fim do mês conta como venda do mês e a reversão pesa no mês seguinte, como num fechamento
+ *            tirado logo depois da virada (o arquivo dele reflete a posição do dia em que foi exportado, e o nosso banco
+ *            reflete a de hoje, então a data da reversão é que manda). Valor: cartão = `valor_sem_juros`; boleto e pix =
+ *            `total_pedido` (colunas J e I).
  *   CHARGEBACKS = pedido de origem Call/Whats pago ANTES do mês, estornado ou com chargeback DENTRO do mês. Valor:
  *            `valor_sem_juros`.
  *   COMISSÃO = 20% das vendas, e o desconto de 20% dos chargebacks.
@@ -58,9 +61,9 @@ export interface FechamentoCallCenter {
     semOrigem: { pedidos: number; totalCentavos: number };
     /** estornos e chargebacks do mês de pedidos pagos antes dele e sem `origem`: idem, ficam fora do desconto */
     chargebacksSemOrigem: { pedidos: number; totalCentavos: number };
-    /** vendas do mês, de origem Call/Whats, que o Pagah já mostra estornadas ou em chargeback: fora das duas pontas, como na planilha */
+    /** vendas do período, de origem Call/Whats, estornadas ou com chargeback DENTRO dele: fora das duas pontas, como na planilha */
     revertidasNoMes: { pedidos: number; totalCentavos: number };
-    /** pagas no mês e revertidas só depois dele: não entram agora (a planilha também as perde) e pesam no mês da reversão */
+    /** vendas do período revertidas só DEPOIS do fim dele: contam como venda agora e a reversão pesa no período seguinte */
     revertidasDepois: { pedidos: number; totalCentavos: number };
     /** chargeback/estorno de cartão parcelado com o valor sem juros igual ao total: provável juros dentro do número */
     possivelJurosNosChargebacks: { pedidos: number; totalCentavos: number };
@@ -113,28 +116,56 @@ export function limitesDoPeriodo(de: string, ate: string): { inicio: Date; fim: 
 const dentro = (d: Date | null, a: Date, b: Date) => d !== null && d >= a && d < b;
 const soma = (xs: number[]) => xs.reduce((s, x) => s + x, 0);
 
-/** `alvo` = AAAA-MM (o mês inteiro) ou um período livre. Quem foi pago ANTES do início é de período anterior. */
-export function calcularFechamento(alvo: string | { de: string; ate: string }, vendas: ReadonlyArray<VendaDoFechamento>): FechamentoCallCenter {
+export interface ConjuntosDoFechamento {
+  vendidas: VendaDoFechamento[];
+  chargebacks: VendaDoFechamento[];
+  semOrigem: VendaDoFechamento[];
+  chargebacksSemOrigem: VendaDoFechamento[];
+  revertidasNoMes: VendaDoFechamento[];
+  revertidasDepois: VendaDoFechamento[];
+}
+
+/**
+ * Separa os pedidos nas pontas do fechamento. `posicaoEm` é "como estava" nesse instante: quem foi revertido antes dele já
+ * saiu das vendas. Por padrão é o FIM do período (um fechamento correto não sabe do que acontece depois). Para reproduzir um
+ * arquivo exportado em outro dia, passe o instante da exportação: o dono exportou em 03/11 e o arquivo traz como pago quem só
+ * foi revertido nesse dia.
+ */
+export function separarFechamento(
+  alvo: string | { de: string; ate: string },
+  vendas: ReadonlyArray<VendaDoFechamento>,
+  posicaoEm?: Date,
+): ConjuntosDoFechamento & { inicio: Date; fim: Date; de: string; ate: string; mes: string | null } {
   const mes = typeof alvo === 'string' ? alvo : null;
   const { inicio, fim, de, ate } = typeof alvo === 'string' ? limitesDoMes(alvo) : limitesDoPeriodo(alvo.de, alvo.ate);
+  const posicao = posicaoEm ?? fim;
   const foiRevertida = (v: VendaDoFechamento) => v.status === 'ESTORNADO' || v.status === 'CHARGEBACK';
 
+  // Reverteu até a posição (ou sem data de reversão) some; reverteu depois dela, ainda é venda deste período.
+  const revertidaAteAPosicao = (v: VendaDoFechamento) => foiRevertida(v) && (v.perdaEm === null || v.perdaEm < posicao);
   const noMes = vendas.filter((v) => dentro(v.pagoEm, inicio, fim));
-  const semOrigem = noMes.filter((v) => v.status === 'PAGO' && !v.origem?.trim());
   const callNoMes = noMes.filter((v) => origemEhCallCenter(v.origem));
+  const chargebackDoPeriodo = (v: VendaDoFechamento) =>
+    foiRevertida(v) && v.pagoEm !== null && v.pagoEm < inicio && dentro(v.perdaEm, inicio, fim);
 
-  const vendidas = callNoMes.filter((v) => v.status === 'PAGO');
-  const revertidas = callNoMes.filter(foiRevertida);
-  const revertidasNoMes = revertidas.filter((v) => dentro(v.perdaEm, inicio, fim));
-  const revertidasDepois = revertidas.filter((v) => !dentro(v.perdaEm, inicio, fim));
+  return {
+    inicio, fim, de, ate, mes,
+    vendidas: callNoMes.filter((v) => !revertidaAteAPosicao(v)),
+    revertidasNoMes: callNoMes.filter(revertidaAteAPosicao),
+    revertidasDepois: callNoMes.filter((v) => foiRevertida(v) && v.perdaEm !== null && v.perdaEm >= posicao),
+    semOrigem: noMes.filter((v) => !revertidaAteAPosicao(v) && !v.origem?.trim()),
+    chargebacks: vendas.filter((v) => origemEhCallCenter(v.origem) && chargebackDoPeriodo(v)),
+    chargebacksSemOrigem: vendas.filter((v) => !v.origem?.trim() && chargebackDoPeriodo(v)),
+  };
+}
 
-  const chargebacks = vendas.filter(
-    (v) => origemEhCallCenter(v.origem) && foiRevertida(v) && v.pagoEm !== null && v.pagoEm < inicio && dentro(v.perdaEm, inicio, fim),
-  );
-
-  const cbSemOrigem = vendas.filter(
-    (v) => !v.origem?.trim() && foiRevertida(v) && v.pagoEm !== null && v.pagoEm < inicio && dentro(v.perdaEm, inicio, fim),
-  );
+/** `alvo` = AAAA-MM (o mês inteiro) ou um período livre. Quem foi pago ANTES do início é de período anterior. */
+export function calcularFechamento(
+  alvo: string | { de: string; ate: string },
+  vendas: ReadonlyArray<VendaDoFechamento>,
+  posicaoEm?: Date,
+): FechamentoCallCenter {
+  const { mes, de, ate, vendidas, chargebacks, semOrigem, chargebacksSemOrigem: cbSemOrigem, revertidasNoMes, revertidasDepois } = separarFechamento(alvo, vendas, posicaoEm);
 
   const porMetodo: LinhaPorMetodo[] = (['CARTAO', 'BOLETO', 'PIX'] as const).map((metodo) => {
     const linhas = vendidas.filter((v) => metodoDe(v.metodoPagamento) === metodo);
