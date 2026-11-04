@@ -99,6 +99,18 @@ export function eventKey(pedido: string, tipo: TipoEvento, valorEvento: number |
  *  - Valores nulos recebidos nunca apagam dados existentes (ausente ≠ zero; zero explícito é preservado).
  *  - Eventos são unidos por eventKey (idempotente); perda calculada uma única vez.
  */
+const DIA_MS = 86_400_000;
+
+/**
+ * O HISTORICO traz só o DIA do pagamento; o evento "pago" do EVENTOS traz o instante em que o Pagah avisou. Quando os dois
+ * discordam por 2 dias ou mais, é contradição e não ruído de fuso, e vale o evento: num Pix gerado em 23/09 e pago em
+ * 15/10 (pedido 2820519), o HISTORICO repetiu a data da criação e o Pagah mostra 15/10. Diferença de um dia segue como
+ * sempre (o HISTORICO manda): é onde o fuso mora.
+ */
+export function pagamentoContradiz(a: Date | null | undefined, b: Date | null | undefined): boolean {
+  return !!a && !!b && Math.abs(a.getTime() - b.getTime()) >= 2 * DIA_MS;
+}
+
 export function aplicarFatos(estado: EstadoVenda | null, fatos: Fato[]): ResultadoVenda {
   const atributos: Atributos = { ...(estado?.atributos ?? ATRIBUTOS_VAZIOS) };
   let comissao: ComissaoValor = estado?.comissao ?? { centavos: null, fonte: 'AUSENTE' };
@@ -112,6 +124,15 @@ export function aplicarFatos(estado: EstadoVenda | null, fatos: Fato[]): Resulta
     const soPerdas = fato.fonte === 'EVENTOS' && fato.eventos.length > 0 && fato.eventos.every((e) => e.tipo !== 'PAGAMENTO');
     for (const [k, v] of Object.entries(fato.atributos) as [keyof Atributos, unknown][]) {
       if (v === null || v === undefined) continue;
+      if (k === 'pagoEm') {
+        const doEvento = [...eventos.values()].find((e) => e.tipo === 'PAGAMENTO' && e.fonte === 'EVENTOS');
+        // o instante do evento "pago" contradiz a data do HISTORICO: o evento vence, nos dois sentidos de chegada
+        if (fato.fonte === 'EVENTOS' && !soPerdas && pagamentoContradiz(atributos.pagoEm, v as Date)) {
+          atributos.pagoEm = v as Date;
+          continue;
+        }
+        if (fato.fonte === 'HISTORICO' && doEvento && pagamentoContradiz(doEvento.ocorridoEm, v as Date)) continue;
+      }
       if (historicoManda && atributos[k] !== null) continue;
       if (soPerdas && PROTEGIDOS_EM_PERDA.has(k) && atributos[k] !== null) continue;
       (atributos as unknown as Record<string, unknown>)[k] = v;
@@ -120,7 +141,17 @@ export function aplicarFatos(estado: EstadoVenda | null, fatos: Fato[]): Resulta
     comissao = mesclarComissao(comissao, fato.comissao);
     for (const ev of fato.eventos) {
       const atual = eventos.get(ev.eventKey);
-      if (atual?.fonte === 'HISTORICO' && ev.fonte === 'EVENTOS') {
+      if (atual && ev.tipo === 'PAGAMENTO' && atual.fonte !== ev.fonte && atual.ocorridoEm && ev.ocorridoEm && pagamentoContradiz(atual.ocorridoEm, ev.ocorridoEm)) {
+        // as duas fontes discordam por 2 dias ou mais: vale o instante do evento "pago" (EVENTOS), o resto segue o HISTORICO
+        const historico = atual.fonte === 'HISTORICO' ? atual : ev;
+        const doEvento = atual.fonte === 'EVENTOS' ? atual : ev;
+        eventos.set(ev.eventKey, {
+          ...historico,
+          ocorridoEm: doEvento.ocorridoEm,
+          recebidoEm: doEvento.recebidoEm ?? historico.recebidoEm,
+          valorCentavos: historico.valorCentavos ?? doEvento.valorCentavos,
+        });
+      } else if (atual?.fonte === 'HISTORICO' && ev.fonte === 'EVENTOS') {
         // mesmo evento nas duas fontes: HISTORICO manda; EVENTOS só completa lacunas
         eventos.set(ev.eventKey, {
           ...atual,

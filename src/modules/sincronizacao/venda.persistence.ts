@@ -20,6 +20,8 @@ export interface ContextoPersistencia {
   x1: CriterioX1 | null;
   /** payout do RedTrack substitui comissão de fonte menos confiável (estimada/regra) */
   redtrackPayoutComoComissao?: boolean;
+  /** origem do Pagah por vendedor (`vendedores_pagah`): preenche a origem do pedido que chegou só com o `vendedorId` */
+  origemDoVendedor?: ReadonlyMap<string, string>;
 }
 
 export interface ResumoPersistencia {
@@ -162,6 +164,9 @@ export async function persistirFatos(
       resumo.ignorados++;
       continue;
     }
+    // O Pagah entrega o vendedor, não a origem: ela é propriedade do vendedor e vem da tabela dele. A origem que a própria
+    // fonte trouxe (HISTORICO) vale mais e nunca é trocada.
+    if (a.origem === null && a.vendedorId) a.origem = ctx.origemDoVendedor?.get(a.vendedorId) ?? null;
     const afiliadoId = refs.afiliado(a.afiliadoNome);
     const cls = classificar(
       {
@@ -177,6 +182,7 @@ export async function persistirFatos(
         checkout: a.checkout,
         canalPlanilha: a.canalPlanilha,
         subcanal: a.subcanal,
+        pagoEm: a.pagoEm,
       },
       ctx.regras,
     );

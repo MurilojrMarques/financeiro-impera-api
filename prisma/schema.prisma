@@ -381,6 +381,55 @@ model RegraClassificacao {
   @@map("regras_classificacao")
 }
 
+/// A origem do Pagah é uma propriedade do VENDEDOR: em outubro/2026, 96 vendedores tiveram uma origem só cada (83 "Call",
+/// 4 "Whats" e 9 com o próprio nome), em 100% dos pedidos. O Pagah entrega o `vendedorId` em todo pedido de atendimento e
+/// não a origem; esta tabela faz a ponte e é o que decide o Call Center do fechamento manual. Vendedor novo, sem linha
+/// aqui, cai no canal da planilha e aparece nos avisos do fechamento até alguém dizer a origem dele.
+model VendedorPagah {
+  vendedorId   String   @id // id_user_venda do Pagah, como texto
+  origem       String // "Call", "Whats" ou o nome do vendedor, como o Pagah mostra
+  fonte        String // de onde veio: "importado do Pagah (CSV)", "informado pelo financeiro"…
+  criadoEm     DateTime @default(now()) @db.Timestamptz
+  atualizadoEm DateTime @updatedAt @db.Timestamptz
+
+  @@map("vendedores_pagah")
+}
+
+/// O que o financeiro decidiu sobre um pedido no fechamento do Call Center de uma competência, quando o dado do Pagah e o
+/// arquivo de fechamento manual discordam e os dois lados foram conferidos. Nunca muda a venda: só o fechamento daquele mês, e aparece
+/// na tela e na resposta da API com o motivo e quem decidiu.
+enum AcaoAjusteFechamento {
+  INCLUIR_VENDA // o pedido conta como venda desta competência, mesmo com `pagoEm` fora dela
+  EXCLUIR_VENDA // o pedido não conta como venda desta competência, mesmo com `pagoEm` dentro dela
+  INCLUIR_CHARGEBACK // o pedido conta como chargeback desta competência, com o valor informado (o Pagah o mostra, a base ainda não)
+}
+
+/// arquivo de fechamento manual é a foto do dia em que é exportado do Pagah; sem esta data, o fechamento usa o fim do mês, que é correto mas não
+/// bate com o arquivo. Com ela, a tela e a API mostram sempre o mesmo número, e a data fica à vista.
+/// bate com o dele. Com ela, a tela e a API mostram sempre o mesmo número, e a data fica à vista.
+model FechamentoPosicao {
+  competencia  String   @id // AAAA-MM
+  posicao      String // AAAA-MM-DD: "como estavam os pedidos no começo deste dia"
+  criadoPorId  String?  @db.Uuid
+  atualizadoEm DateTime @updatedAt @db.Timestamptz
+
+  @@map("fechamento_posicoes")
+}
+
+model FechamentoAjuste {
+  id            String               @id @default(uuid()) @db.Uuid
+  competencia   String // AAAA-MM
+  pedido        String
+  acao          AcaoAjusteFechamento
+  motivo        String
+  valorCentavos Int? // só em INCLUIR_CHARGEBACK: o valor_sem_juros que o Pagah mostra para o pedido
+  criadoPorId   String?              @db.Uuid
+  criadoEm      DateTime             @default(now()) @db.Timestamptz
+
+  @@unique([competencia, pedido])
+  @@map("fechamento_ajustes")
+}
+
 model Venda {
   id                       String        @id @default(uuid()) @db.Uuid
   pedido                   String        @unique
