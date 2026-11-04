@@ -120,6 +120,17 @@ describe('fechamento do Call Center (fórmula da planilha do dono)', () => {
     expect(r.chargebacks).toEqual({ pedidos: 1, totalCentavos: 29_700 });
   });
 
+  it('Pix e boleto estão na lista de chargebacks mas contam zero (o valor_sem_juros vem em branco no Pagah); o valor real fica no aviso', () => {
+    const r = calcularFechamento('2026-10', [
+      v({ status: 'CHARGEBACK', metodoPagamento: 'Cartão', pagoEm: d('2026-09-10T10:00:00'), perdaEm: d('2026-10-05T10:00:00'), valorVendaCentavos: 29_700 }),
+      v({ status: 'ESTORNADO', metodoPagamento: 'Pix', pagoEm: d('2026-09-10T10:00:00'), perdaEm: d('2026-10-06T10:00:00'), valorVendaCentavos: 26_400, valorTotalCentavos: 26_400 }),
+      v({ status: 'ESTORNADO', metodoPagamento: 'Boleto', pagoEm: d('2026-09-10T10:00:00'), perdaEm: d('2026-10-07T10:00:00'), valorVendaCentavos: 35_000, valorTotalCentavos: 35_000 }),
+    ]);
+    expect(r.chargebacks).toEqual({ pedidos: 3, totalCentavos: 29_700 });
+    expect(r.comissao.descontoChargebackCentavos).toBe(Math.round(29_700 * 0.2));
+    expect(r.avisos.chargebacksPixBoletoSemDesconto).toEqual({ pedidos: 2, totalCentavos: 26_400 + 35_000 });
+  });
+
   it('pedido sem origem do Pagah não entra e é contado à parte, nunca somado por adivinhação', () => {
     const r = calcularFechamento('2026-10', [
       v({ origem: null }), v({ origem: '  ' }), v({}),
@@ -209,6 +220,30 @@ describe('ajustes manuais da competência', () => {
     ]);
     expect(r.vendas.pedidos).toBe(1); // só o natural, uma vez
     expect(r.ajustes.map((a) => [a.pedido, a.aplicado, a.efeitoCentavos])).toEqual([['N1', false, 0], ['R1', false, 0], ['S1', false, 0]]);
+  });
+
+  describe('incluir chargeback (o Pagah o mostra, a base ainda não)', () => {
+    const inc = { pedido: '2527952', acao: 'INCLUIR_CHARGEBACK' as const, motivo: 'Pagah mostra "chargeback em tratamento" e o webhook não mandou o evento', valorCentavos: 19_800 };
+
+    it('entra no desconto com o valor informado, e some do lado dos pedidos que a base já tem', () => {
+      const r = calcularFechamento('2026-10', [v({})], undefined, [inc]);
+      expect(r.chargebacks).toEqual({ pedidos: 1, totalCentavos: 19_800 });
+      expect(r.comissao.descontoChargebackCentavos).toBe(Math.round(19_800 * 0.2));
+      expect(r.ajustes).toEqual([{ ...inc, aplicado: true, efeitoCentavos: 19_800 }]);
+    });
+
+    it('não conta em dobro quando a base passa a trazer o chargeback: o ajuste vira não aplicado', () => {
+      const cb = v({ pedido: '2527952', status: 'CHARGEBACK', pagoEm: d('2026-06-09T19:16:00'), perdaEm: d('2026-10-03T13:51:00'), valorVendaCentavos: 19_800 });
+      const r = calcularFechamento('2026-10', [cb], undefined, [inc]);
+      expect(r.chargebacks).toEqual({ pedidos: 1, totalCentavos: 19_800 });
+      expect(r.ajustes[0]).toMatchObject({ aplicado: false, efeitoCentavos: 0 });
+    });
+
+    it('sem valor positivo o ajuste não tem efeito', () => {
+      const r = calcularFechamento('2026-10', [], undefined, [{ ...inc, valorCentavos: null }]);
+      expect(r.chargebacks).toEqual({ pedidos: 0, totalCentavos: 0 });
+      expect(r.ajustes[0]).toMatchObject({ aplicado: false, efeitoCentavos: 0 });
+    });
   });
 
   it('a competência é o mês inteiro, pelo mês ou pelo período do dia 1 ao último dia; período livre não recebe ajuste', () => {

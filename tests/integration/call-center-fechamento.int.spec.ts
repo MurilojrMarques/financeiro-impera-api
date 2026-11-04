@@ -126,7 +126,7 @@ describe('ajustes manuais do fechamento (rotas)', () => {
     const depois = await get('?mes=2026-10');
     expect(depois.body.data.vendas.pedidos).toBe(2);
     expect(depois.body.data.vendas.totalCentavos).toBe(39_700 + 19_700);
-    expect(depois.body.data.ajustes).toEqual([{ pedido: '9000002', acao: 'INCLUIR_VENDA', motivo, aplicado: true, efeitoCentavos: 19_700 }]);
+    expect(depois.body.data.ajustes).toEqual([{ pedido: '9000002', acao: 'INCLUIR_VENDA', motivo, valorCentavos: null, aplicado: true, efeitoCentavos: 19_700 }]);
   });
 
   it('o ajuste vale para o mês inteiro pedido por período, não para um período livre, e não muda a venda nem setembro', async () => {
@@ -149,6 +149,18 @@ describe('ajustes manuais do fechamento (rotas)', () => {
     expect((await get('?mes=2026-10')).body.data.vendas.pedidos).toBe(1);
     const acoes = (await prisma.auditoria.findMany({ where: { acao: { startsWith: 'call_center.fechamento_ajuste' } }, select: { acao: true } })).map((a) => a.acao).sort();
     expect(acoes).toEqual(['call_center.fechamento_ajuste_criado', 'call_center.fechamento_ajuste_removido']);
+  });
+
+  it('incluir chargeback: o pedido que o Pagah mostra e a base não tem entra no desconto com o valor, o motivo e o efeito à vista', async () => {
+    const cb = { competencia: '2026-10', pedido: '2527952', acao: 'INCLUIR_CHARGEBACK', motivo: 'Pagah mostra "chargeback em tratamento" e o webhook não mandou o evento.' };
+    expect((await post(cb)).status).toBe(422); // sem valor
+    expect((await post({ ...cb, valorCentavos: 19_800, acao: 'INCLUIR_VENDA' })).status).toBe(422); // valor só vale no chargeback
+    const criado = await post({ ...cb, valorCentavos: 19_800 });
+    expect(criado.status).toBe(201); // o pedido nem precisa existir na base
+    const f = (await get('?mes=2026-10')).body.data;
+    expect(f.chargebacks).toEqual({ pedidos: 1, totalCentavos: 19_800 });
+    expect(f.comissao.descontoChargebackCentavos).toBe(3_960);
+    expect(f.ajustes).toEqual([{ pedido: '2527952', acao: 'INCLUIR_CHARGEBACK', motivo: cb.motivo, valorCentavos: 19_800, aplicado: true, efeitoCentavos: 19_800 }]);
   });
 });
 

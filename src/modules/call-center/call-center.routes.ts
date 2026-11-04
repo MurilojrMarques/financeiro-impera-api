@@ -121,12 +121,16 @@ callCenterRouter.get('/fechamento', verCustos, validate({ query: fechamentoQuery
  * aparece na tela e na resposta com o motivo (o fechamento não esconde que houve ajuste). Só FINANCEIRO/ADMIN.
  */
 const competenciaRe = /^\d{4}-(0[1-9]|1[0-2])$/;
-const ajusteBody = z.object({
-  competencia: z.string().regex(competenciaRe, 'use AAAA-MM'),
-  pedido: z.string().regex(/^\d{3,12}$/, 'número do pedido'),
-  acao: z.enum(['INCLUIR_VENDA', 'EXCLUIR_VENDA']),
-  motivo: z.string().trim().min(15, 'conte o motivo em pelo menos 15 caracteres').max(600),
-});
+const ajusteBody = z
+  .object({
+    competencia: z.string().regex(competenciaRe, 'use AAAA-MM'),
+    pedido: z.string().regex(/^\d{3,12}$/, 'número do pedido'),
+    acao: z.enum(['INCLUIR_VENDA', 'EXCLUIR_VENDA', 'INCLUIR_CHARGEBACK']),
+    motivo: z.string().trim().min(15, 'conte o motivo em pelo menos 15 caracteres').max(600),
+    /** em centavos: obrigatório (e só vale) em INCLUIR_CHARGEBACK */
+    valorCentavos: z.number().int().positive().max(100_000_000).optional(),
+  })
+  .refine((b) => (b.acao === 'INCLUIR_CHARGEBACK') === (b.valorCentavos !== undefined), 'valorCentavos é obrigatório em INCLUIR_CHARGEBACK e não vale nas outras ações');
 const posicaoBody = z.object({
   competencia: z.string().regex(competenciaRe, 'use AAAA-MM'),
   posicao: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use AAAA-MM-DD'),
@@ -160,13 +164,16 @@ callCenterRouter.get('/fechamento/ajustes', verCustos, validate({ query: z.objec
 });
 callCenterRouter.post('/fechamento/ajustes', verCustos, validate({ body: ajusteBody }), async (req, res) => {
   const b = req.valid.body as z.infer<typeof ajusteBody>;
-  const venda = await prisma.venda.findUnique({ where: { pedido: b.pedido }, select: { origem: true } });
-  if (!venda) throw Errors.notFound('Pedido não encontrado na base');
-  if (!origemEhCallCenter(venda.origem)) throw Errors.conflict('O ajuste vale para pedido de origem Call ou Whats; este não tem essa origem.', 'AJUSTE_SEM_EFEITO');
+  // O chargeback incluído é justamente o pedido que a base ainda não tem: não se exige que ele exista nem tenha origem.
+  if (b.acao !== 'INCLUIR_CHARGEBACK') {
+    const venda = await prisma.venda.findUnique({ where: { pedido: b.pedido }, select: { origem: true } });
+    if (!venda) throw Errors.notFound('Pedido não encontrado na base');
+    if (!origemEhCallCenter(venda.origem)) throw Errors.conflict('O ajuste vale para pedido de origem Call ou Whats; este não tem essa origem.', 'AJUSTE_SEM_EFEITO');
+  }
   const existente = await prisma.fechamentoAjuste.findUnique({ where: { competencia_pedido: { competencia: b.competencia, pedido: b.pedido } } });
   if (existente) throw Errors.conflict('Este pedido já tem um ajuste nesta competência. Remova o anterior para trocar.', 'AJUSTE_JA_EXISTE');
   const novo = await prisma.fechamentoAjuste.create({ data: { ...b, criadoPorId: req.user!.id } });
-  await audit(req, 'call_center.fechamento_ajuste_criado', 'fechamento_ajuste', novo.id, { competencia: b.competencia, pedido: b.pedido, acao: b.acao });
+  await audit(req, 'call_center.fechamento_ajuste_criado', 'fechamento_ajuste', novo.id, { competencia: b.competencia, pedido: b.pedido, acao: b.acao, valorCentavos: b.valorCentavos ?? null });
   created(res, novo);
 });
 callCenterRouter.delete('/fechamento/ajustes/:id', verCustos, validate({ params: z.object({ id: z.string().uuid() }) }), async (req, res) => {

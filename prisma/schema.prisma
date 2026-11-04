@@ -401,6 +401,7 @@ model VendedorPagah {
 enum AcaoAjusteFechamento {
   INCLUIR_VENDA // o pedido conta como venda desta competência, mesmo com `pagoEm` fora dela
   EXCLUIR_VENDA // o pedido não conta como venda desta competência, mesmo com `pagoEm` dentro dela
+  INCLUIR_CHARGEBACK // o pedido conta como chargeback desta competência, com o valor informado (o Pagah o mostra, a base ainda não)
 }
 
 /// A data em que o financeiro FECHOU o mês do Call Center (a posição dos pedidos que vale para aquela competência). O arquivo do
@@ -416,13 +417,14 @@ model FechamentoPosicao {
 }
 
 model FechamentoAjuste {
-  id          String                @id @default(uuid()) @db.Uuid
-  competencia String // AAAA-MM
-  pedido      String
-  acao        AcaoAjusteFechamento
-  motivo      String
-  criadoPorId String?               @db.Uuid
-  criadoEm    DateTime              @default(now()) @db.Timestamptz
+  id            String               @id @default(uuid()) @db.Uuid
+  competencia   String // AAAA-MM
+  pedido        String
+  acao          AcaoAjusteFechamento
+  motivo        String
+  valorCentavos Int? // só em INCLUIR_CHARGEBACK: o valor_sem_juros que o Pagah mostra para o pedido
+  criadoPorId   String?              @db.Uuid
+  criadoEm      DateTime             @default(now()) @db.Timestamptz
 
   @@unique([competencia, pedido])
   @@map("fechamento_ajustes")

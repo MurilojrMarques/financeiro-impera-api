@@ -12,7 +12,8 @@ import { searchKey } from '../../shared/utils/text';
  *            reflete a de hoje, então a data da reversão é que manda). Valor: cartão = `valor_sem_juros`; boleto e pix =
  *            `total_pedido` (colunas J e I).
  *   CHARGEBACKS = pedido de origem Call/Whats pago ANTES do mês, estornado ou com chargeback DENTRO do mês. Valor:
- *            `valor_sem_juros`.
+ *            `valor_sem_juros`, que só o cartão traz: Pix e boleto estão na lista, mas contam zero (o `SOMASES` dele soma uma
+ *            coluna em branco). O que o Pagah mostra como chargeback e a base ainda não tem entra por ajuste manual.
  *   COMISSÃO = 20% das vendas, e o desconto de 20% dos chargebacks.
  *
  * A origem manda: não depende do grupo da classificação. Pedido sem origem do Pagah não tem como entrar e é contado à parte
@@ -46,14 +47,16 @@ export interface VendaDoFechamento {
 /** O que o financeiro decidiu sobre um pedido nesta competência (ver `FechamentoAjuste` no schema). */
 export interface AjusteDoFechamento {
   pedido: string;
-  acao: 'INCLUIR_VENDA' | 'EXCLUIR_VENDA';
+  acao: 'INCLUIR_VENDA' | 'EXCLUIR_VENDA' | 'INCLUIR_CHARGEBACK';
   motivo: string;
+  /** só em INCLUIR_CHARGEBACK: o `valor_sem_juros` que o Pagah mostra para o pedido */
+  valorCentavos?: number | null;
 }
 
 export interface AjusteAplicado extends AjusteDoFechamento {
   /** `false` quando o ajuste não encontrou efeito (pedido ausente, sem origem Call/Whats, já revertido ou já contado) */
   aplicado: boolean;
-  /** quanto o ajuste mexeu nas vendas: positivo ao incluir, negativo ao excluir; 0 se não aplicado */
+  /** quanto o ajuste mexeu nas vendas (ou, no INCLUIR_CHARGEBACK, nos chargebacks): positivo ao incluir, negativo ao excluir; 0 se não aplicado */
   efeitoCentavos: number;
 }
 
@@ -89,6 +92,8 @@ export interface FechamentoCallCenter {
     revertidasDepois: { pedidos: number; totalCentavos: number };
     /** chargeback/estorno de cartão parcelado com o valor sem juros igual ao total: provável juros dentro do número */
     possivelJurosNosChargebacks: { pedidos: number; totalCentavos: number };
+    /** chargeback de Pix ou boleto: está na lista, mas o `valor_sem_juros` do Pagah vem em branco e a planilha do dono o conta como zero; aqui o valor real, que NÃO foi descontado */
+    chargebacksPixBoletoSemDesconto: { pedidos: number; totalCentavos: number };
   };
 }
 
@@ -108,6 +113,15 @@ function metodoDe(m: string | null): MetodoFechamento | null {
 /** O valor que a planilha soma: cartão no `valor_sem_juros`, boleto e pix no `total_pedido`. */
 export function valorDaPlanilha(v: Pick<VendaDoFechamento, 'metodoPagamento' | 'valorVendaCentavos' | 'valorTotalCentavos'>): number {
   return metodoDe(v.metodoPagamento) === 'CARTAO' ? v.valorVendaCentavos : (v.valorTotalCentavos ?? v.valorVendaCentavos);
+}
+
+/**
+ * O valor que a planilha do dono desconta de um chargeback: a coluna `valor_sem_juros` do Pagah, que SÓ o cartão traz. Pix e
+ * boleto chegam com a coluna em branco, e o `SOMASES` dele conta em branco como zero: o pedido entra na lista, mas não pesa
+ * no desconto. É o número que ele fecha, então é o que o sistema reproduz; o valor real fica à vista nos avisos.
+ */
+export function valorDoChargeback(v: Pick<VendaDoFechamento, 'metodoPagamento' | 'valorVendaCentavos'>): number {
+  return metodoDe(v.metodoPagamento) === 'CARTAO' ? v.valorVendaCentavos : 0;
 }
 
 /** `mes` = AAAA-MM. Início e fim do mês em Brasília (a planilha do dono fecha por dia de calendário). */
@@ -200,7 +214,15 @@ export function separarFechamento(
   const vendidas = [...naturais, ...extras].filter((v) => !excluir.has(v.pedido));
   const contadas = new Set(vendidas.map((v) => v.pedido));
   const porPedido = new Map(vendas.map((v) => [v.pedido, v]));
+  const chargebacks = vendas.filter((v) => callNoChargeback(v) && chargebackDoPeriodo(v));
+  const jaNosChargebacks = new Set(chargebacks.map((v) => v.pedido));
   const ajustesAplicados: AjusteAplicado[] = ajustes.map((a) => {
+    // O chargeback que o Pagah mostra e a base ainda não tem: conta com o valor informado, uma vez, e só enquanto a base não o traz.
+    if (a.acao === 'INCLUIR_CHARGEBACK') {
+      const valor = a.valorCentavos ?? 0;
+      const aplicado = valor > 0 && !jaNosChargebacks.has(a.pedido);
+      return { ...a, aplicado, efeitoCentavos: aplicado ? valor : 0 };
+    }
     const v = porPedido.get(a.pedido);
     const aplicado = a.acao === 'INCLUIR_VENDA' ? contadas.has(a.pedido) && !jaContados.has(a.pedido) : jaContados.has(a.pedido) && !contadas.has(a.pedido);
     const valor = v ? valorDaPlanilha(v) : 0;
@@ -214,7 +236,7 @@ export function separarFechamento(
     revertidasNoMes: callNoMes.filter(revertidaAteAPosicao),
     revertidasDepois: callNoMes.filter((v) => foiRevertida(v) && v.perdaEm !== null && v.perdaEm >= posicao),
     semOrigem: noMes.filter((v) => !revertidaAteAPosicao(v) && !v.origem?.trim()),
-    chargebacks: vendas.filter((v) => callNoChargeback(v) && chargebackDoPeriodo(v)),
+    chargebacks,
     chargebacksSemOrigem: vendas.filter((v) => !v.origem?.trim() && chargebackDoPeriodo(v)),
   };
 }
@@ -234,7 +256,10 @@ export function calcularFechamento(
     return { metodo, pedidos: linhas.length, totalCentavos: total, comissaoCentavos: Math.round(total * COMISSAO_CALL_CENTER) };
   });
   const totalVendas = soma(porMetodo.map((l) => l.totalCentavos));
-  const totalCb = soma(chargebacks.map((v) => v.valorVendaCentavos));
+  const cbIncluidos = ajustesAplicados.filter((a) => a.acao === 'INCLUIR_CHARGEBACK' && a.aplicado);
+  const totalCb = soma(chargebacks.map(valorDoChargeback)) + soma(cbIncluidos.map((a) => a.efeitoCentavos));
+  // Pix e boleto estão na lista de chargebacks mas não pesam no desconto (ver `valorDoChargeback`): o valor real fica à vista.
+  const cbSemValor = chargebacks.filter((v) => metodoDe(v.metodoPagamento) !== 'CARTAO');
   const comissaoVendas = soma(porMetodo.map((l) => l.comissaoCentavos));
   const descontoCb = Math.round(totalCb * COMISSAO_CALL_CENTER);
 
@@ -247,7 +272,7 @@ export function calcularFechamento(
     mes,
     periodo: { de, ate },
     vendas: { pedidos: vendidas.length, totalCentavos: totalVendas, porMetodo },
-    chargebacks: { pedidos: chargebacks.length, totalCentavos: totalCb },
+    chargebacks: { pedidos: chargebacks.length + cbIncluidos.length, totalCentavos: totalCb },
     comissao: {
       percentual: COMISSAO_CALL_CENTER,
       vendasCentavos: comissaoVendas,
@@ -261,6 +286,7 @@ export function calcularFechamento(
       revertidasNoMes: resumo(revertidasNoMes),
       revertidasDepois: resumo(revertidasDepois),
       possivelJurosNosChargebacks: { pedidos: jurosPossiveis.length, totalCentavos: soma(jurosPossiveis.map((v) => v.valorVendaCentavos)) },
+      chargebacksPixBoletoSemDesconto: { pedidos: cbSemValor.length, totalCentavos: soma(cbSemValor.map((v) => v.valorVendaCentavos)) },
     },
   };
 }

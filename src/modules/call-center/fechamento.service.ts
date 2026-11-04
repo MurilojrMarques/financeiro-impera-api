@@ -40,7 +40,7 @@ export async function fechamentoCallCenter(
 /** Os ajustes manuais da competência (só quando o pedido é o mês inteiro; período livre não os recebe). */
 export async function ajustesDaCompetencia(competencia: string | null): Promise<AjusteDoFechamento[]> {
   if (!competencia) return [];
-  const linhas = await prisma.fechamentoAjuste.findMany({ where: { competencia }, select: { pedido: true, acao: true, motivo: true }, orderBy: { criadoEm: 'asc' } });
+  const linhas = await prisma.fechamentoAjuste.findMany({ where: { competencia }, select: { pedido: true, acao: true, motivo: true, valorCentavos: true }, orderBy: { criadoEm: 'asc' } });
   return linhas;
 }
 
