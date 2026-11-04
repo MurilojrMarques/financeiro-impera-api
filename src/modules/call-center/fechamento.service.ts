@@ -59,16 +59,20 @@ export async function vendasDoFechamento(inicio: Date, fim: Date, pedidosAjustad
       OR: [
         ...(pedidosAjustados.length > 0 ? [{ pedido: { in: pedidosAjustados } }] : []),
         { pagoEm: noPeriodo },
-        { pagoEm: { lt: inicio }, OR: [{ estornadoEm: noPeriodo }, { chargebackEm: noPeriodo }, { perdaEm: noPeriodo }] },
+        {
+          OR: [{ pagoEm: { lt: inicio } }, { criadoEmOrigem: { lt: inicio } }],
+          AND: [{ OR: [{ estornadoEm: noPeriodo }, { chargebackEm: noPeriodo }, { perdaEm: noPeriodo }] }],
+        },
       ],
     },
     select: {
       pedido: true, origem: true, status: true, metodoPagamento: true, parcelas: true, pagoEm: true, perdaEm: true,
       estornadoEm: true, chargebackEm: true, valorVendaCentavos: true, valorTotalCentavos: true, jurosCentavos: true,
+      grupo: true, criadoEmOrigem: true,
     },
   });
-  return linhas.map(({ estornadoEm, chargebackEm, ...v }) => {
+  return linhas.map(({ estornadoEm, chargebackEm, criadoEmOrigem, ...v }) => {
     const datas = [estornadoEm, chargebackEm].filter((d): d is Date => d !== null);
-    return { ...v, perdaEm: datas.length > 0 ? new Date(Math.min(...datas.map((d) => d.getTime()))) : v.perdaEm };
+    return { ...v, criadoEm: criadoEmOrigem, reversoesEm: datas.length > 0 ? datas : v.perdaEm ? [v.perdaEm] : [], perdaEm: datas.length > 0 ? new Date(Math.min(...datas.map((d) => d.getTime()))) : v.perdaEm };
   });
 }

@@ -97,6 +97,29 @@ describe('fechamento do Call Center (fórmula da planilha do dono)', () => {
     expect(r.comissao.liquidaCentavos).toBe(r.comissao.vendasCentavos - r.comissao.descontoChargebackCentavos);
   });
 
+  it('o chargeback entra pela data do ESTORNO ou do CHARGEBACK, e vale o pedido criado antes do mês (como na aba do dono)', () => {
+    const r = calcularFechamento('2026-10', [
+      // estorno em setembro e chargeback em 04/10: o dono desconta pela data do chargeback
+      v({ status: 'CHARGEBACK', pagoEm: d('2026-09-15T12:00:00'), perdaEm: d('2026-09-29T08:43:00'), reversoesEm: [d('2026-09-29T08:43:00'), d('2026-10-04T07:25:00')], valorVendaCentavos: 39_700 }),
+      // criado em setembro, pago em 15/10 e estornado em 16/10: criado antes do mês, então é chargeback e não é venda
+      v({ status: 'ESTORNADO', criadoEm: d('2026-09-25T11:35:00'), pagoEm: d('2026-10-15T18:00:00'), perdaEm: d('2026-10-16T06:23:00'), valorVendaCentavos: 37_800 }),
+      // criado e revertido dentro do mês: some das duas pontas
+      v({ status: 'ESTORNADO', criadoEm: d('2026-10-14T11:35:00'), pagoEm: d('2026-10-15T18:00:00'), perdaEm: d('2026-10-16T06:23:00') }),
+    ]);
+    expect(r.chargebacks).toEqual({ pedidos: 2, totalCentavos: 39_700 + 37_800 });
+    expect(r.vendas.pedidos).toBe(0);
+  });
+
+  it('antes de 01/10 a origem com o nome do vendedor não vale: o que o sistema já classificava como Call Center entra no chargeback', () => {
+    const r = calcularFechamento('2026-10', [
+      v({ status: 'CHARGEBACK', origem: 'Jessica Teste', grupo: 'CALL_CENTER', pagoEm: d('2026-09-28T10:00:00'), perdaEm: d('2026-10-20T10:00:00'), valorVendaCentavos: 29_700 }),
+      v({ status: 'CHARGEBACK', origem: 'Jessica Teste', grupo: 'RECUPERACAO', pagoEm: d('2026-09-28T10:00:00'), perdaEm: d('2026-10-20T10:00:00') }),
+      // pago em outubro vale só a origem do Pagah: nome de vendedor não é Call
+      v({ status: 'CHARGEBACK', origem: 'Jessica Teste', grupo: 'CALL_CENTER', criadoEm: d('2026-09-30T10:00:00'), pagoEm: d('2026-10-02T10:00:00'), perdaEm: d('2026-10-20T10:00:00') }),
+    ]);
+    expect(r.chargebacks).toEqual({ pedidos: 1, totalCentavos: 29_700 });
+  });
+
   it('pedido sem origem do Pagah não entra e é contado à parte, nunca somado por adivinhação', () => {
     const r = calcularFechamento('2026-10', [
       v({ origem: null }), v({ origem: '  ' }), v({}),

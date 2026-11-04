@@ -1,4 +1,4 @@
-import { origemEhCallCenter } from '../classificacoes/classificacao.service';
+import { ORIGEM_PAGAH_DESDE, origemEhCallCenter } from '../classificacoes/classificacao.service';
 import { searchKey } from '../../shared/utils/text';
 
 /**
@@ -35,6 +35,12 @@ export interface VendaDoFechamento {
   valorVendaCentavos: number; // valor_sem_juros
   valorTotalCentavos: number | null; // total_pedido
   jurosCentavos: number | null;
+  /** grupo em que o sistema classificou a venda (CALL_CENTER, RECUPERACAO...) */
+  grupo?: string;
+  /** quando o pedido foi criado no Pagah; sem ele vale a data do pagamento */
+  criadoEm?: Date | null;
+  /** as datas do estorno e do chargeback (a `perdaEm` é só a primeira); sem elas vale a `perdaEm` */
+  reversoesEm?: Date[];
 }
 
 /** O que o financeiro decidiu sobre um pedido nesta competência (ver `FechamentoAjuste` no schema). */
@@ -170,8 +176,18 @@ export function separarFechamento(
   const revertidaAteAPosicao = (v: VendaDoFechamento) => foiRevertida(v) && (v.perdaEm === null || v.perdaEm < posicao);
   const noMes = vendas.filter((v) => dentro(v.pagoEm, inicio, fim));
   const callNoMes = noMes.filter((v) => origemEhCallCenter(v.origem));
-  const chargebackDoPeriodo = (v: VendaDoFechamento) =>
-    foiRevertida(v) && v.pagoEm !== null && v.pagoEm < inicio && dentro(v.perdaEm, inicio, fim);
+  // Chargebacks e estornos do período, como na aba Chargebacks do dono: pedido CRIADO antes do período (o criado e revertido
+  // no próprio período some das duas pontas) com estorno OU chargeback dentro dele. Estorno em 29/09 e chargeback em 04/10
+  // entram em outubro: o dono desconta pela data do chargeback.
+  const chargebackDoPeriodo = (v: VendaDoFechamento) => {
+    const criado = v.criadoEm ?? v.pagoEm;
+    const reversoes = v.reversoesEm ?? (v.perdaEm ? [v.perdaEm] : []);
+    return foiRevertida(v) && v.pagoEm !== null && criado !== null && criado < inicio && reversoes.some((d) => dentro(d, inicio, fim));
+  };
+  // Antes de 01/10 a origem do Pagah não vale (ver ORIGEM_PAGAH_DESDE): o que o dono chama de "Call" nos chargebacks de
+  // setembro e antes é o que o sistema já classificava como Call Center (vendedores que hoje têm o próprio nome na origem).
+  const callNoChargeback = (v: VendaDoFechamento) =>
+    origemEhCallCenter(v.origem) || (v.grupo === 'CALL_CENTER' && v.pagoEm !== null && v.pagoEm < ORIGEM_PAGAH_DESDE);
 
   // Ajustes manuais da competência: incluir um pedido que o Pagah data fora do período (e o dono conta nele), ou tirar um que
   // não deve contar. Só valem para pedido de origem Call/Whats que ainda não foi revertido na posição.
@@ -198,7 +214,7 @@ export function separarFechamento(
     revertidasNoMes: callNoMes.filter(revertidaAteAPosicao),
     revertidasDepois: callNoMes.filter((v) => foiRevertida(v) && v.perdaEm !== null && v.perdaEm >= posicao),
     semOrigem: noMes.filter((v) => !revertidaAteAPosicao(v) && !v.origem?.trim()),
-    chargebacks: vendas.filter((v) => origemEhCallCenter(v.origem) && chargebackDoPeriodo(v)),
+    chargebacks: vendas.filter((v) => callNoChargeback(v) && chargebackDoPeriodo(v)),
     chargebacksSemOrigem: vendas.filter((v) => !v.origem?.trim() && chargebackDoPeriodo(v)),
   };
 }
