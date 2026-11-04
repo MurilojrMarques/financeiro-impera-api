@@ -1,11 +1,11 @@
 /**
  * Importa a `origem` do Pagah (Site, Call, Whats, nome do vendedor…) para as vendas que ainda não a têm.
  *
- * POR QUÊ: a planilha de histórico trouxe a origem de todo o mês de setembro e parou em outubro, e o fechamento do dono
+ * POR QUÊ: a planilha de histórico trouxe a origem de todo o mês de setembro e parou em outubro, e o fechamento manual
  * decide Call Center por ela (origem que contém "Call" ou "Whats"). Sem origem a venda cai no canal da planilha, que
- * chama de Call Center vendedores que o dono não conta. Este script é a ponte até a origem chegar sozinha do Pagah.
+ * chama de Call Center vendedores que a planilha não conta. Este script é a ponte até a origem chegar sozinha do Pagah.
  *
- * ENTRADA: um CSV exportado do Pagah (ou da aba "Pedidos" do fechamento do dono) com as colunas `id_pedido` e `origem`.
+ * ENTRADA: um CSV exportado do Pagah (ou da aba "Pedidos" do fechamento manual) com as colunas `id_pedido` e `origem`.
  * Qualquer outra coluna é ignorada. Nada de dado pessoal é lido nem gravado: só o número do pedido e a origem.
  *
  * Uso:

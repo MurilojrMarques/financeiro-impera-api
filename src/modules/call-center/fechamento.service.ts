@@ -2,7 +2,7 @@ import { prisma } from '../../config/database';
 import { calcularFechamento, competenciaDoAlvo, limitesDoMes, limitesDoPeriodo, type AjusteDoFechamento, type FechamentoCallCenter, type VendaDoFechamento } from './fechamento.domain';
 
 /**
- * O fechamento do Call Center do mês na fórmula da planilha do dono (ver `fechamento.domain.ts`). Lê só os pedidos que
+ * O fechamento do Call Center do mês na fórmula da planilha de fechamento (ver `fechamento.domain.ts`). Lê só os pedidos que
  * importam: pagos no mês, ou estornados/com chargeback no mês (para os pagos antes dele).
  */
 export interface PosicaoDoFechamento {

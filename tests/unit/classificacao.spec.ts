@@ -85,7 +85,7 @@ describe('canal da planilha (coluna `canal` do EVENTOS) decide o grupo', () => {
   });
 });
 
-describe('origem do Pagah (fechamento do dono, a partir de 01/10/2026)', () => {
+describe('origem do Pagah (fechamento manual, a partir de 01/10/2026)', () => {
   const out = new Date('2026-10-15T12:00:00-03:00');
   const set = new Date('2026-09-15T12:00:00-03:00');
   const com = (o: Partial<ClassificacaoInput>) => classificar({ ...base, tipoBruto: 'call center', pagoEm: out, ...o }, []);
@@ -106,7 +106,7 @@ describe('origem do Pagah (fechamento do dono, a partir de 01/10/2026)', () => {
     expect(com({ origem: 'Site', canalPlanilha: 'call center' }).grupo).toBe('FRONT');
   });
 
-  it('é a fórmula do dono, caixa inclusa: "Jeferson CALL (800K)" não casa com "Call"', () => {
+  it('é a fórmula da planilha, caixa inclusa: "Jeferson CALL (800K)" não casa com "Call"', () => {
     expect(origemEhCallCenter('Jeferson CALL (800K)')).toBe(false);
     expect(com({ origem: 'Jeferson CALL (800K)', canalPlanilha: 'call center' }).grupo).toBe('RECUPERACAO');
     expect(origemEhCallCenter('Call')).toBe(true);

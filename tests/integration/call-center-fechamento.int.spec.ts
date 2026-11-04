@@ -19,7 +19,7 @@ const venda = (pedido: string, extra: Record<string, unknown> = {}) =>
 
 /**
  * A origem do Pagah é do VENDEDOR: o Pagah entrega o `vendedorId` (não a origem) e a tabela `vendedores_pagah` faz a ponte.
- * É o que decide o Call Center do fechamento do dono, sem planilha.
+ * É o que decide o Call Center do fechamento manual, sem planilha.
  */
 describe('origem do Pagah pelo vendedor e fechamento do Call Center', () => {
   beforeAll(async () => {
@@ -50,7 +50,7 @@ describe('origem do Pagah pelo vendedor e fechamento do Call Center', () => {
   });
   afterAll(closeDatabase);
 
-  it('a tabela de vendedores preenche a origem e a classificação segue a regra do dono (só a partir de outubro)', async () => {
+  it('a tabela de vendedores preenche a origem e a classificação segue a regra da planilha (só a partir de outubro)', async () => {
     const mudaram = await reclassificarTodas();
     expect(mudaram).toBeGreaterThan(0);
     const por = async (pedido: string) => prisma.venda.findUniqueOrThrow({ where: { pedido }, select: { origem: true, grupo: true } });
@@ -96,7 +96,7 @@ describe('ajustes manuais do fechamento (rotas)', () => {
     analista = await tokenDe('ANALISTA');
     await prisma.vendedorPagah.create({ data: { vendedorId: '889380', origem: 'Call', fonte: 'teste' } });
     await venda('9000001', { vendedorId: '889380' }); // venda de outubro
-    // pago às 21:23:59 de 30/09: é de setembro, e o export do dono o traz em outubro
+    // pago às 21:23:59 de 30/09: é de setembro, e o export da planilha o traz em outubro
     await venda('9000002', { vendedorId: '889380', pagoEm: new Date('2026-09-30T21:23:59-03:00'), metodoPagamento: 'Pix', valorVendaCentavos: 19_700, valorTotalCentavos: 19_700 });
     await venda('9000003', { origem: 'Site' });
     await reclassificarTodas();
@@ -104,7 +104,7 @@ describe('ajustes manuais do fechamento (rotas)', () => {
 
   const post = (b: Record<string, unknown>, token = financeiro) => request(app).post(`${api}/call-center/fechamento/ajustes`).set('Authorization', token).send(b);
   const get = (qs: string) => request(app).get(`${api}/call-center/fechamento${qs}`).set('Authorization', financeiro);
-  const motivo = 'Pago em 30/09 21:23:59 (evento do Pagah); o export do dono o lista em 01/10 e o fechamento dele o inclui.';
+  const motivo = 'Pago em 30/09 21:23:59 (evento do Pagah); o export da planilha o lista em 01/10 e o fechamento dele o inclui.';
   const ajuste = { competencia: '2026-10', pedido: '9000002', acao: 'INCLUIR_VENDA', motivo };
 
   it('só o Financeiro ajusta; motivo curto, pedido inexistente ou sem origem Call/Whats são recusados', async () => {
@@ -172,9 +172,9 @@ describe('data de fechamento da competência (posição)', () => {
     analista = await tokenDe('ANALISTA');
     await prisma.vendedorPagah.create({ data: { vendedorId: '889380', origem: 'Call', fonte: 'teste' } });
     await venda('9100001', { vendedorId: '889380' });
-    // vendida em outubro e revertida em 02/11, depois do fim do mês e antes do arquivo do dono (03/11)
+    // vendida em outubro e revertida em 02/11, depois do fim do mês e antes do arquivo de fechamento (03/11)
     await venda('9100002', { vendedorId: '889380', status: 'CHARGEBACK', pagoEm: dia('2026-10-20T10:00:00'), chargebackEm: dia('2026-11-02T10:00:00'), perdaEm: dia('2026-11-02T10:00:00') });
-    // revertida em 03/11, que o arquivo do dono ainda mostra como paga
+    // revertida em 03/11, que o arquivo de fechamento ainda mostra como paga
     await venda('9100003', { vendedorId: '889380', status: 'CHARGEBACK', pagoEm: dia('2026-10-21T10:00:00'), chargebackEm: dia('2026-11-03T06:38:53'), perdaEm: dia('2026-11-03T06:38:53') });
     await reclassificarTodas();
   });
@@ -199,7 +199,7 @@ describe('data de fechamento da competência (posição)', () => {
     expect((await put({ competencia: '2026-10', posicao: '2026-11-03' })).status).toBe(200);
     const r = await get();
     expect(r.body.data.posicao).toEqual({ em: '2026-11-03', fonte: 'FECHAMENTO' });
-    expect(r.body.data.vendas.pedidos).toBe(2); // sai o revertido em 02/11; o de 03/11 de manhã ainda estava pago no arquivo dele
+    expect(r.body.data.vendas.pedidos).toBe(2); // sai o revertido em 02/11; o de 03/11 de manhã ainda estava pago no arquivo
     // o mesmo mês pedido pelo período inteiro também usa a data fechada
     expect((await get('?de=2026-10-01&ate=2026-10-31')).body.data.posicao.fonte).toBe('FECHAMENTO');
     // um período livre não é uma competência: segue o fim do período

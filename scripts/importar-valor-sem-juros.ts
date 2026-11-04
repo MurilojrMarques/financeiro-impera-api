@@ -4,8 +4,8 @@
  *
  * POR QUÊ: o EVENTOS só traz o evento "pago" a partir de 01/09/2026. O pedido pago em junho, julho ou agosto e revertido depois
  * só tem a linha de estorno/chargeback, e o valor dela é o TOTAL com juros (R$ 359,88 onde o Pagah diz `valor_sem_juros` R$ 298,70).
- * O fechamento do dono desconta o `valor_sem_juros`. O Pagah arredonda a parcela, então não há fator que recupere o valor: a
- * única fonte é a exportação do Pagah (a aba Chargebacks do fechamento do dono é uma).
+ * O fechamento manual desconta o `valor_sem_juros`. O Pagah arredonda a parcela, então não há fator que recupere o valor: a
+ * única fonte é a exportação do Pagah (a aba Chargebacks do fechamento manual é uma).
  *
  * ENTRADA: CSV do Pagah com `id_pedido`, `status`, `origem`, `tipo_pagamento`, `total_pedido`, `valor_sem_juros`, `criado_em`,
  * `data_estorno`, `data_chargeback`. Nada de dado pessoal é lido nem gravado.

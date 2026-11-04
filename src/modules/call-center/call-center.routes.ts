@@ -97,7 +97,7 @@ callCenterRouter.get('/margem', verCustos, q, relatorio(async (f) => {
 }, cc));
 
 /**
- * O fechamento do mês na fórmula da planilha do dono: vendas de origem Call/Whats pagas no mês e ainda pagas, 20% de comissão,
+ * O fechamento do mês na fórmula da planilha de fechamento: vendas de origem Call/Whats pagas no mês e ainda pagas, 20% de comissão,
  * menos os chargebacks de pedidos pagos antes do mês. Dinheiro da operação: só FINANCEIRO/ADMIN. Independe do grupo da
  * classificação (a origem do Pagah manda) e diz quantos pedidos ficaram de fora por falta de origem.
  */
@@ -116,7 +116,7 @@ callCenterRouter.get('/fechamento', verCustos, validate({ query: fechamentoQuery
 });
 
 /**
- * Ajustes manuais do fechamento: quando o dado do Pagah e o arquivo do dono discordam sobre um pedido e as duas pontas foram
+ * Ajustes manuais do fechamento: quando o dado do Pagah e o arquivo de fechamento discordam sobre um pedido e as duas pontas foram
  * conferidas, o financeiro decide em que competência ele conta. O ajuste nunca muda a venda, só o fechamento daquele mês, e
  * aparece na tela e na resposta com o motivo (o fechamento não esconde que houve ajuste). Só FINANCEIRO/ADMIN.
  */

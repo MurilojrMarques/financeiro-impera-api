@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { calcularFechamento, competenciaDoAlvo, limitesDoMes, limitesDoPeriodo, valorDaPlanilha, type VendaDoFechamento } from '../../src/modules/call-center/fechamento.domain';
 
 /**
- * O fechamento do Call Center na fórmula da planilha do dono (outubro/2026), com casos que ele mesmo mostrou:
+ * O fechamento do Call Center na fórmula da planilha de fechamento (outubro/2026), com casos conferidos pedido a pedido:
  * origem "Call"/"Whats" só (vendedor com nome e "CALL" em maiúsculas ficam de fora), cartão no valor sem juros,
  * boleto e pix no total, quem foi revertido no próprio mês some, e chargeback é de pedido pago antes do mês.
  */
@@ -13,7 +13,7 @@ const v = (o: Partial<VendaDoFechamento>): VendaDoFechamento => ({
   pagoEm: d('2026-10-15T12:00:00'), perdaEm: null, valorVendaCentavos: 39_700, valorTotalCentavos: 47_832, jurosCentavos: null, ...o,
 });
 
-describe('fechamento do Call Center (fórmula da planilha do dono)', () => {
+describe('fechamento do Call Center (fórmula da planilha de fechamento)', () => {
   it('o mês vai de 01 00:00 a 01 00:00 do mês seguinte, em Brasília', () => {
     const l = limitesDoMes('2026-10');
     expect(l.inicio.toISOString()).toBe('2026-10-01T03:00:00.000Z');
@@ -97,9 +97,9 @@ describe('fechamento do Call Center (fórmula da planilha do dono)', () => {
     expect(r.comissao.liquidaCentavos).toBe(r.comissao.vendasCentavos - r.comissao.descontoChargebackCentavos);
   });
 
-  it('o chargeback entra pela data do ESTORNO ou do CHARGEBACK, e vale o pedido criado antes do mês (como na aba do dono)', () => {
+  it('o chargeback entra pela data do ESTORNO ou do CHARGEBACK, e vale o pedido criado antes do mês (como na aba da planilha)', () => {
     const r = calcularFechamento('2026-10', [
-      // estorno em setembro e chargeback em 04/10: o dono desconta pela data do chargeback
+      // estorno em setembro e chargeback em 04/10: a planilha desconta pela data do chargeback
       v({ status: 'CHARGEBACK', pagoEm: d('2026-09-15T12:00:00'), perdaEm: d('2026-09-29T08:43:00'), reversoesEm: [d('2026-09-29T08:43:00'), d('2026-10-04T07:25:00')], valorVendaCentavos: 39_700 }),
       // criado em setembro, pago em 15/10 e estornado em 16/10: criado antes do mês, então é chargeback e não é venda
       v({ status: 'ESTORNADO', criadoEm: d('2026-09-25T11:35:00'), pagoEm: d('2026-10-15T18:00:00'), perdaEm: d('2026-10-16T06:23:00'), valorVendaCentavos: 37_800 }),
@@ -192,7 +192,7 @@ describe('posição em (reproduzir um arquivo exportado depois do fim do períod
 
 describe('ajustes manuais da competência', () => {
   const setembro = v({ pedido: 'A100', pagoEm: d('2026-09-30T21:23:59'), valorVendaCentavos: 19_700, valorTotalCentavos: 19_700, metodoPagamento: 'Pix' });
-  const inc = { pedido: 'A100', acao: 'INCLUIR_VENDA' as const, motivo: 'pago em 30/09 mas o export do Pagah do dono o traz em outubro' };
+  const inc = { pedido: 'A100', acao: 'INCLUIR_VENDA' as const, motivo: 'pago em 30/09 mas o export do Pagah da planilha o traz em outubro' };
 
   it('incluir conta o pedido como venda da competência, com o efeito à vista (e sem ele o pedido de setembro não entra)', () => {
     expect(calcularFechamento('2026-10', [setembro, v({})]).vendas.pedidos).toBe(1);

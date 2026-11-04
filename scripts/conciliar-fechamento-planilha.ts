@@ -1,15 +1,15 @@
 /**
- * Concilia, pedido a pedido, o fechamento do Call Center do sistema com o arquivo que o dono fecha na mão com o Pagah.
+ * Concilia, pedido a pedido, o fechamento do Call Center do sistema com o arquivo que se fecha na mão com o Pagah.
  * Só LÊ (do CSV e do banco): não grava nada. Diz, para cada diferença, o que o sistema sabe do pedido, para decidir se o erro
  * é de regra, de dado ou de data (e o que só o Pagah pode confirmar).
  *
- * Entrada: dois CSVs exportados das abas do arquivo dele.
+ * Entrada: dois CSVs exportados das abas do arquivo de fechamento.
  *   --pedidos      aba "Pedidos": id_pedido, origem, tipo_pagamento, total_pedido, valor_sem_juros
  *   --chargebacks  aba "Chargebacks": id_pedido, origem, status, valor_sem_juros
  * e o período: --de AAAA-MM-DD --ate AAAA-MM-DD. Opcional --posicao AAAA-MM-DD: "como estava" no começo desse dia (o arquivo
  * dele reflete o dia em que foi exportado; o padrão é o fim do período).
  *
- * Uso: npx tsx scripts/conciliar-fechamento-dono.ts --pedidos p.csv --chargebacks c.csv --de 2026-10-01 --ate 2026-10-31 --posicao 2026-11-03
+ * Uso: npx tsx scripts/conciliar-fechamento-planilha.ts --pedidos p.csv --chargebacks c.csv --de 2026-10-01 --ate 2026-10-31 --posicao 2026-11-03
  */
 import { readFileSync } from 'node:fs';
 import { closeDatabase } from '../src/config/database';
@@ -53,14 +53,14 @@ async function main(): Promise<void> {
 
   const pedidos = ler(pedidosCsv, ['id_pedido', 'origem', 'tipo_pagamento', 'total_pedido', 'valor_sem_juros']);
   const cbs = ler(cbCsv, ['id_pedido', 'origem', 'valor_sem_juros']);
-  const donoVendas = new Map<string, number>();
+  const planVendas = new Map<string, number>();
   for (const [k, x] of pedidos) {
     if (!origemEhCallCenter(x.origem)) continue;
     const cartao = (x.raw.tipo_pagamento ?? '').toLowerCase().startsWith('cart');
-    donoVendas.set(k, reais(cartao ? x.raw.valor_sem_juros : x.raw.total_pedido));
+    planVendas.set(k, reais(cartao ? x.raw.valor_sem_juros : x.raw.total_pedido));
   }
-  const donoCb = new Map<string, number>();
-  for (const [k, x] of cbs) if (origemEhCallCenter(x.origem)) donoCb.set(k, reais(x.raw.valor_sem_juros));
+  const planCb = new Map<string, number>();
+  for (const [k, x] of cbs) if (origemEhCallCenter(x.origem)) planCb.set(k, reais(x.raw.valor_sem_juros));
 
   const { inicio, fim } = { inicio: new Date(`${de}T00:00:00-03:00`), fim: new Date(new Date(`${ate}T00:00:00-03:00`).getTime() + 24 * 3_600_000) };
   const todas = await vendasDoFechamento(inicio, fim);
@@ -77,24 +77,24 @@ async function main(): Promise<void> {
   const soma = (m: Map<string, number>) => [...m.values()].reduce((s, x) => s + x, 0);
 
   console.log(`\n=== CONCILIAÇÃO ${de} a ${ate}${posicao ? ` | posição em ${dia(posicao)}` : ' | posição no fim do período'} ===`);
-  console.log(`VENDAS Call/Whats   dono ${donoVendas.size} pedidos R$ ${R(soma(donoVendas))} | sistema ${nossasVendas.size} R$ ${R(soma(nossasVendas))} | dif R$ ${R(soma(nossasVendas) - soma(donoVendas))}`);
-  console.log(`CHARGEBACKS         dono ${donoCb.size} pedidos R$ ${R(soma(donoCb))} | sistema ${nossosCb.size} R$ ${R(soma(nossosCb))} | dif R$ ${R(soma(nossosCb) - soma(donoCb))}`);
+  console.log(`VENDAS Call/Whats   planilha ${planVendas.size} pedidos R$ ${R(soma(planVendas))} | sistema ${nossasVendas.size} R$ ${R(soma(nossasVendas))} | dif R$ ${R(soma(nossasVendas) - soma(planVendas))}`);
+  console.log(`CHARGEBACKS         planilha ${planCb.size} pedidos R$ ${R(soma(planCb))} | sistema ${nossosCb.size} R$ ${R(soma(nossosCb))} | dif R$ ${R(soma(nossosCb) - soma(planCb))}`);
 
   const secao = (titulo: string, itens: string[]) => {
     console.log(`\n-- ${titulo}: ${itens.length}`);
     for (const i of itens) console.log(`   ${i}`);
   };
-  secao('VENDAS só no arquivo do dono', [...donoVendas].filter(([k]) => !nossasVendas.has(k)).map(([k, v]) => `${k} R$ ${R(v)} | dono pago_em=${pedidos.get(k)?.raw.pago_em?.slice(0, 10)} | sistema: ${nosso(k)}`));
-  secao('VENDAS só no sistema', [...nossasVendas].filter(([k]) => !donoVendas.has(k)).map(([k, v]) => `${k} R$ ${R(v)} | dono: ${pedidos.has(k) ? `origem=${pedidos.get(k)!.origem}` : 'NÃO está no arquivo'} | sistema: ${nosso(k)}`));
-  secao('CHARGEBACKS só no arquivo do dono', [...donoCb].filter(([k]) => !nossosCb.has(k)).map(([k, v]) => `${k} R$ ${R(v)} | dono status=${cbs.get(k)?.raw.status} origem=${cbs.get(k)?.origem} | sistema: ${nosso(k)}`));
-  secao('CHARGEBACKS só no sistema', [...nossosCb].filter(([k]) => !donoCb.has(k)).map(([k, v]) => `${k} R$ ${R(v)} | dono: ${cbs.has(k) ? `origem=${cbs.get(k)!.origem} status=${cbs.get(k)!.raw.status}` : 'NÃO está no arquivo'} | sistema: ${nosso(k)}`));
-  const dif = [...donoCb].filter(([k, v]) => nossosCb.has(k) && nossosCb.get(k) !== v);
-  secao('CHARGEBACKS nos dois com valor diferente', dif.map(([k, v]) => `${k} dono R$ ${R(v)} | sistema R$ ${R(nossosCb.get(k)!)} (${v === 0 ? 'dono em branco' : `diferença R$ ${R(nossosCb.get(k)! - v)}: possível juros embutido`}) | ${nosso(k)}`));
+  secao('VENDAS só no arquivo de fechamento', [...planVendas].filter(([k]) => !nossasVendas.has(k)).map(([k, v]) => `${k} R$ ${R(v)} | planilha pago_em=${pedidos.get(k)?.raw.pago_em?.slice(0, 10)} | sistema: ${nosso(k)}`));
+  secao('VENDAS só no sistema', [...nossasVendas].filter(([k]) => !planVendas.has(k)).map(([k, v]) => `${k} R$ ${R(v)} | planilha: ${pedidos.has(k) ? `origem=${pedidos.get(k)!.origem}` : 'NÃO está no arquivo'} | sistema: ${nosso(k)}`));
+  secao('CHARGEBACKS só no arquivo de fechamento', [...planCb].filter(([k]) => !nossosCb.has(k)).map(([k, v]) => `${k} R$ ${R(v)} | planilha status=${cbs.get(k)?.raw.status} origem=${cbs.get(k)?.origem} | sistema: ${nosso(k)}`));
+  secao('CHARGEBACKS só no sistema', [...nossosCb].filter(([k]) => !planCb.has(k)).map(([k, v]) => `${k} R$ ${R(v)} | planilha: ${cbs.has(k) ? `origem=${cbs.get(k)!.origem} status=${cbs.get(k)!.raw.status}` : 'NÃO está no arquivo'} | sistema: ${nosso(k)}`));
+  const dif = [...planCb].filter(([k, v]) => nossosCb.has(k) && nossosCb.get(k) !== v);
+  secao('CHARGEBACKS nos dois com valor diferente', dif.map(([k, v]) => `${k} planilha R$ ${R(v)} | sistema R$ ${R(nossosCb.get(k)!)} (${v === 0 ? 'planilha em branco' : `diferença R$ ${R(nossosCb.get(k)! - v)}: possível juros embutido`}) | ${nosso(k)}`));
   const em = dif.filter(([, v]) => v !== 0);
-  console.log(`\nresumo dos valores diferentes: ${dif.length - em.length} em branco no arquivo dele (R$ ${R(dif.filter(([, v]) => v === 0).reduce((s, [k]) => s + nossosCb.get(k)!, 0))}) | ${em.length} com possível juros (R$ ${R(em.reduce((s, [k, v]) => s + nossosCb.get(k)! - v, 0))})`);
+  console.log(`\nresumo dos valores diferentes: ${dif.length - em.length} em branco no arquivo (R$ ${R(dif.filter(([, v]) => v === 0).reduce((s, [k]) => s + nossosCb.get(k)!, 0))}) | ${em.length} com possível juros (R$ ${R(em.reduce((s, [k, v]) => s + nossosCb.get(k)! - v, 0))})`);
 }
 
-if (process.argv[1]?.endsWith('conciliar-fechamento-dono.ts')) {
+if (process.argv[1]?.endsWith('conciliar-fechamento-planilha.ts')) {
   main()
     .catch((e) => {
       console.error(`Erro: ${e instanceof Error ? e.message : String(e)}`);

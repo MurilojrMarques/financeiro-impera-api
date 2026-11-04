@@ -383,7 +383,7 @@ model RegraClassificacao {
 
 /// A origem do Pagah é uma propriedade do VENDEDOR: em outubro/2026, 96 vendedores tiveram uma origem só cada (83 "Call",
 /// 4 "Whats" e 9 com o próprio nome), em 100% dos pedidos. O Pagah entrega o `vendedorId` em todo pedido de atendimento e
-/// não a origem; esta tabela faz a ponte e é o que decide o Call Center do fechamento do dono. Vendedor novo, sem linha
+/// não a origem; esta tabela faz a ponte e é o que decide o Call Center do fechamento manual. Vendedor novo, sem linha
 /// aqui, cai no canal da planilha e aparece nos avisos do fechamento até alguém dizer a origem dele.
 model VendedorPagah {
   vendedorId   String   @id // id_user_venda do Pagah, como texto
@@ -396,7 +396,7 @@ model VendedorPagah {
 }
 
 /// O que o financeiro decidiu sobre um pedido no fechamento do Call Center de uma competência, quando o dado do Pagah e o
-/// arquivo do dono discordam e os dois lados foram conferidos. Nunca muda a venda: só o fechamento daquele mês, e aparece
+/// arquivo de fechamento manual discordam e os dois lados foram conferidos. Nunca muda a venda: só o fechamento daquele mês, e aparece
 /// na tela e na resposta da API com o motivo e quem decidiu.
 enum AcaoAjusteFechamento {
   INCLUIR_VENDA // o pedido conta como venda desta competência, mesmo com `pagoEm` fora dela
@@ -404,8 +404,8 @@ enum AcaoAjusteFechamento {
   INCLUIR_CHARGEBACK // o pedido conta como chargeback desta competência, com o valor informado (o Pagah o mostra, a base ainda não)
 }
 
-/// A data em que o financeiro FECHOU o mês do Call Center (a posição dos pedidos que vale para aquela competência). O arquivo do
-/// dono é a foto do dia em que ele exporta do Pagah; sem esta data, o fechamento usa o fim do mês, que é correto mas não
+/// arquivo de fechamento manual é a foto do dia em que é exportado do Pagah; sem esta data, o fechamento usa o fim do mês, que é correto mas não
+/// bate com o arquivo. Com ela, a tela e a API mostram sempre o mesmo número, e a data fica à vista.
 /// bate com o dele. Com ela, a tela e a API mostram sempre o mesmo número, e a data fica à vista.
 model FechamentoPosicao {
   competencia  String   @id // AAAA-MM

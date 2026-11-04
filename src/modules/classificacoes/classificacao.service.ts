@@ -15,10 +15,10 @@ import { searchKey } from '../../shared/utils/text';
  *
  * Nada é inferido de nomes de produto/campanha: só regras explícitas e auditáveis.
  *
- * ORIGEM DO PAGAH (a partir de 01/10/2026, fechamento do dono): quando a venda traz a `origem` do Pagah, é ela quem diz
+ * ORIGEM DO PAGAH (a partir de 01/10/2026, fechamento manual): quando a venda traz a `origem` do Pagah, é ela quem diz
  * se é Call Center, e vem ANTES do canal da planilha. Origem que contém "Call" ou "Whats" é Call Center; qualquer outra
  * coisa não é: "Site" é Front e o nome de um vendedor (Jessica Teste, Leonardo Bittencourt…) é Recuperação. É a regra da
- * planilha do dono (`QUERY(Pedidos; "G contains 'Call' or G contains 'Whats'")`), que o sistema passa a seguir. Sem origem
+ * planilha de fechamento (`QUERY(Pedidos; "G contains 'Call' or G contains 'Whats'")`), que o sistema passa a seguir. Sem origem
  * (o Pagah ainda não a entregou), vale o canal da planilha, como antes. Regra cadastrada que casa com a venda vence a origem. Antes de outubro nada muda: setembro tem nomes de
  * atendente com "#id" na origem que contam como Call Center, e esse mês já foi fechado.
  */
@@ -58,11 +58,11 @@ export interface ClassificacaoResultado {
   regraId: string | null;
 }
 
-/** A venda paga a partir daqui segue a origem do Pagah (fechamento de outubro/2026 do dono). 01/10/2026 00:00 em Brasília. */
+/** A venda paga a partir daqui segue a origem do Pagah (fechamento de outubro/2026). 01/10/2026 00:00 em Brasília. */
 export const ORIGEM_PAGAH_DESDE = new Date('2026-10-01T00:00:00-03:00');
 
 /**
- * A regra do fechamento do dono: a origem contém "Call" ou "Whats". Igual à fórmula dele, que é sensível a maiúsculas
+ * A regra do fechamento manual: a origem contém "Call" ou "Whats". Igual à fórmula da planilha, que é sensível a maiúsculas
  * (`contains` do Google Sheets): "Jeferson CALL (800K)" não casa, e foi assim que ele fechou outubro.
  */
 export function origemEhCallCenter(origem: string | null | undefined): boolean {

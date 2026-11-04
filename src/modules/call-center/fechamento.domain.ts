@@ -2,17 +2,17 @@ import { ORIGEM_PAGAH_DESDE, origemEhCallCenter } from '../classificacoes/classi
 import { searchKey } from '../../shared/utils/text';
 
 /**
- * O fechamento do Call Center do dono, na fórmula da planilha dele ("Fechamento <empresa>", aba Fechamento), sem desvio.
- * É o número que ele fecha na mão com o Pagah, e o sistema passa a reproduzi-lo para conferir:
+ * O fechamento do Call Center, na fórmula da planilha de fechamento ("Fechamento <empresa>", aba Fechamento), sem desvio.
+ * É o número que se fecha na mão com o Pagah, e o sistema passa a reproduzi-lo para conferir:
  *
- *   VENDAS = pedido com `origem` "Call" ou "Whats" (a `QUERY` dele), PAGO NO MÊS e ainda pago NO FIM DELE: quem foi
+ *   VENDAS = pedido com `origem` "Call" ou "Whats" (a `QUERY` da planilha), PAGO NO MÊS e ainda pago NO FIM DELE: quem foi
  *            estornado ou virou chargeback dentro do mês some, sem entrar como venda nem como chargeback. Quem só foi
  *            revertido depois do fim do mês conta como venda do mês e a reversão pesa no mês seguinte, como num fechamento
- *            tirado logo depois da virada (o arquivo dele reflete a posição do dia em que foi exportado, e o nosso banco
+ *            tirado logo depois da virada (o arquivo da planilha reflete a posição do dia em que foi exportado, e o nosso banco
  *            reflete a de hoje, então a data da reversão é que manda). Valor: cartão = `valor_sem_juros`; boleto e pix =
  *            `total_pedido` (colunas J e I).
  *   CHARGEBACKS = pedido de origem Call/Whats pago ANTES do mês, estornado ou com chargeback DENTRO do mês. Valor:
- *            `valor_sem_juros`, que só o cartão traz: Pix e boleto estão na lista, mas contam zero (o `SOMASES` dele soma uma
+ *            `valor_sem_juros`, que só o cartão traz: Pix e boleto estão na lista, mas contam zero (o `SOMASES` da planilha soma uma
  *            coluna em branco). O que o Pagah mostra como chargeback e a base ainda não tem entra por ajuste manual.
  *   COMISSÃO = 20% das vendas, e o desconto de 20% dos chargebacks.
  *
@@ -92,7 +92,7 @@ export interface FechamentoCallCenter {
     revertidasDepois: { pedidos: number; totalCentavos: number };
     /** chargeback/estorno de cartão parcelado com o valor sem juros igual ao total: provável juros dentro do número */
     possivelJurosNosChargebacks: { pedidos: number; totalCentavos: number };
-    /** chargeback de Pix ou boleto: está na lista, mas o `valor_sem_juros` do Pagah vem em branco e a planilha do dono o conta como zero; aqui o valor real, que NÃO foi descontado */
+    /** chargeback de Pix ou boleto: está na lista, mas o `valor_sem_juros` do Pagah vem em branco e a planilha de fechamento o conta como zero; aqui o valor real, que NÃO foi descontado */
     chargebacksPixBoletoSemDesconto: { pedidos: number; totalCentavos: number };
   };
 }
@@ -116,15 +116,15 @@ export function valorDaPlanilha(v: Pick<VendaDoFechamento, 'metodoPagamento' | '
 }
 
 /**
- * O valor que a planilha do dono desconta de um chargeback: a coluna `valor_sem_juros` do Pagah, que SÓ o cartão traz. Pix e
- * boleto chegam com a coluna em branco, e o `SOMASES` dele conta em branco como zero: o pedido entra na lista, mas não pesa
- * no desconto. É o número que ele fecha, então é o que o sistema reproduz; o valor real fica à vista nos avisos.
+ * O valor que a planilha de fechamento desconta de um chargeback: a coluna `valor_sem_juros` do Pagah, que SÓ o cartão traz. Pix e
+ * boleto chegam com a coluna em branco, e o `SOMASES` da planilha conta em branco como zero: o pedido entra na lista, mas não pesa
+ * no desconto. É o número da planilha, então é o que o sistema reproduz; o valor real fica à vista nos avisos.
  */
 export function valorDoChargeback(v: Pick<VendaDoFechamento, 'metodoPagamento' | 'valorVendaCentavos'>): number {
   return metodoDe(v.metodoPagamento) === 'CARTAO' ? v.valorVendaCentavos : 0;
 }
 
-/** `mes` = AAAA-MM. Início e fim do mês em Brasília (a planilha do dono fecha por dia de calendário). */
+/** `mes` = AAAA-MM. Início e fim do mês em Brasília (a planilha de fechamento fecha por dia de calendário). */
 export function limitesDoMes(mes: string): { inicio: Date; fim: Date; de: string; ate: string } {
   const m = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(mes);
   if (!m) throw new Error(`mês inválido: ${mes} (esperado AAAA-MM)`);
@@ -172,7 +172,7 @@ export interface ConjuntosDoFechamento {
 /**
  * Separa os pedidos nas pontas do fechamento. `posicaoEm` é "como estava" nesse instante: quem foi revertido antes dele já
  * saiu das vendas. Por padrão é o FIM do período (um fechamento correto não sabe do que acontece depois). Para reproduzir um
- * arquivo exportado em outro dia, passe o instante da exportação: o dono exportou em 03/11 e o arquivo traz como pago quem só
+ * arquivo exportado em outro dia, passe o instante da exportação: a planilha foi exportada em 03/11 e o arquivo traz como pago quem só
  * foi revertido nesse dia.
  */
 export function separarFechamento(
@@ -190,20 +190,20 @@ export function separarFechamento(
   const revertidaAteAPosicao = (v: VendaDoFechamento) => foiRevertida(v) && (v.perdaEm === null || v.perdaEm < posicao);
   const noMes = vendas.filter((v) => dentro(v.pagoEm, inicio, fim));
   const callNoMes = noMes.filter((v) => origemEhCallCenter(v.origem));
-  // Chargebacks e estornos do período, como na aba Chargebacks do dono: pedido CRIADO antes do período (o criado e revertido
+  // Chargebacks e estornos do período, como na aba Chargebacks da planilha: pedido CRIADO antes do período (o criado e revertido
   // no próprio período some das duas pontas) com estorno OU chargeback dentro dele. Estorno em 29/09 e chargeback em 04/10
-  // entram em outubro: o dono desconta pela data do chargeback.
+  // entram em outubro: a planilha desconta pela data do chargeback.
   const chargebackDoPeriodo = (v: VendaDoFechamento) => {
     const criado = v.criadoEm ?? v.pagoEm;
     const reversoes = v.reversoesEm ?? (v.perdaEm ? [v.perdaEm] : []);
     return foiRevertida(v) && v.pagoEm !== null && criado !== null && criado < inicio && reversoes.some((d) => dentro(d, inicio, fim));
   };
-  // Antes de 01/10 a origem do Pagah não vale (ver ORIGEM_PAGAH_DESDE): o que o dono chama de "Call" nos chargebacks de
+  // Antes de 01/10 a origem do Pagah não vale (ver ORIGEM_PAGAH_DESDE): o que a planilha chama de "Call" nos chargebacks de
   // setembro e antes é o que o sistema já classificava como Call Center (vendedores que hoje têm o próprio nome na origem).
   const callNoChargeback = (v: VendaDoFechamento) =>
     origemEhCallCenter(v.origem) || (v.grupo === 'CALL_CENTER' && v.pagoEm !== null && v.pagoEm < ORIGEM_PAGAH_DESDE);
 
-  // Ajustes manuais da competência: incluir um pedido que o Pagah data fora do período (e o dono conta nele), ou tirar um que
+  // Ajustes manuais da competência: incluir um pedido que o Pagah data fora do período (e a planilha conta nele), ou tirar um que
   // não deve contar. Só valem para pedido de origem Call/Whats que ainda não foi revertido na posição.
   const porAcao = (a: AjusteDoFechamento['acao']) => new Map(ajustes.filter((x) => x.acao === a).map((x) => [x.pedido, x]));
   const incluir = porAcao('INCLUIR_VENDA');
