@@ -65,12 +65,6 @@ export const otimizacaoBody = z.object({
   descricao: z.string().trim().min(3).max(200),
   valorCentavos: z.number().int().min(1).max(10_000_000).optional(),
 });
-export const vslBody = z.object({
-  chave: z.string().trim().min(3).max(120),
-  dono: z.string().trim().min(2).max(40).nullable(),
-  editor: z.string().trim().min(2).max(40).nullable(),
-  mesmaVsl: z.string().trim().min(3).max(120).nullable(),
-});
 export const comissaoLancarBody = z.object({ competencia: competenciaSchema });
 
 export const docUploadBody = z.object({

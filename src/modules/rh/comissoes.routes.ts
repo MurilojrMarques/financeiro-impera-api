@@ -4,16 +4,18 @@ import { validate } from '../../middlewares/validate.middleware';
 import { Errors } from '../../shared/errors/app-error';
 import { audit } from '../../shared/services/audit.service';
 import { created, ok } from '../../shared/utils/response';
+import { bonusLeadDoCopyNoMes } from '../../integrations/copy-supabase/copy-bonus-lead';
 import { apurarFront, norm, VALOR_OTIMIZACAO_CENTAVOS, type BeneficiarioComissao } from '../comissoes/comissao-front';
 import { exigeRh, PAPEIS_ESCREVEM, veTodos } from './rh.access';
-import { comissaoLancarBody, comissaoQuery, comissaoVinculoBody, idParams, otimizacaoBody, otimizacaoQuery, vslBody } from './rh.schemas';
+import { comissaoLancarBody, comissaoQuery, comissaoVinculoBody, idParams, otimizacaoBody, otimizacaoQuery } from './rh.schemas';
 import { totalDoItem } from './rh.service';
 
 /**
  * Comissão do time do Front por colaborador (regras e fonte de cada dado em ../comissoes/comissao-front.ts).
  * O vínculo beneficiário → colaborador do RH é decidido pelo RH (copywriterId para quem é do copy; comissaoChave para gestor, editor e fixo),
- * porque os nomes não casam sozinhos. A área é só do RH e do CEO (gestor e colaborador não veem comissão). Só o RH vincula, lança otimizações,
- * cadastra VSL e lança na folha. Lançar na folha exige o mês FECHADO no copy, o RedTrack respondendo, nenhuma VSL sem dono e a folha do mês ABERTA.
+ * porque os nomes não casam sozinhos. A área é só do RH e do CEO (gestor e colaborador não veem comissão). Só o RH vincula, lança otimizações (o bônus de lead e MLD confirmado no sistema de copy, quando há, vale no lugar)
+ * e lança na folha. Dono e editor da VSL são decisão do negócio (tabela comissao_vsl): o RH não os decide e a tela não os edita; VSL sem dono
+ * não entra na comissão de ninguém. Lançar na folha exige o mês FECHADO no copy, o RedTrack respondendo e a folha do mês ABERTA.
  */
 export const comissoesRouter = Router();
 
@@ -70,7 +72,8 @@ comissoesRouter.get('/', validate({ query: comissaoQuery }), async (req, res) =>
     completa: r.completa,
     itens,
     sugestoes,
-    vsl: { disponivel: r.vslDisponivel, mensagem: r.vslMensagem, semDono: r.vslSemDono },
+    vsl: { disponivel: r.vslDisponivel, mensagem: r.vslMensagem, fonte: r.vslFonte },
+    otimizacoes: { fonte: r.otimizacoesFonte },
     totais: {
       comissaoCentavos: r.totais.apuradaCentavos,
       aPagarCentavos: r.totais.aPagarCentavos,
@@ -101,7 +104,6 @@ comissoesRouter.post('/lancar', exigeRh(PAPEIS_ESCREVEM), validate({ body: comis
   if (!r.disponivel) throw Errors.conflict(r.mensagem);
   if (r.estado !== 'FECHADO') throw Errors.conflict('O mês ainda não está fechado no sistema de copy: a comissão é provisória e só pode ir para a folha depois do fechamento.');
   if (!r.vslDisponivel) throw Errors.conflict(`Não foi possível ler as VSLs no RedTrack agora (${r.vslMensagem ?? 'sem resposta'}). Tente de novo para não lançar um valor incompleto.`);
-  if (r.vslSemDono.length > 0) throw Errors.conflict(`Cadastre o dono das VSLs antes de lançar: ${r.vslSemDono.slice(0, 5).map((v) => v.vsl).join('; ')}${r.vslSemDono.length > 5 ? '…' : ''}.`);
   const folha = await prisma.rhFolhaCompetencia.findUnique({ where: { competencia }, include: { itens: true } });
   if (!folha) throw Errors.conflict(`A folha de ${competencia} ainda não foi gerada.`);
   if (folha.status === 'FECHADA') throw Errors.conflict('Folha fechada: não é possível alterar.');
@@ -142,6 +144,10 @@ comissoesRouter.get('/otimizacoes', validate({ query: otimizacaoQuery }), async 
 
 comissoesRouter.post('/otimizacoes', exigeRh(PAPEIS_ESCREVEM), validate({ body: otimizacaoBody }), async (req, res) => {
   const b = req.valid.body as { competencia: string; copywriter: string; descricao: string; valorCentavos?: number };
+  // o bônus de lead e MLD é sugerido pelo sistema de copy e confirmado pelo admin lá; com decisão no mês, o RH não soma por cima
+  if ((await bonusLeadDoCopyNoMes(b.competencia)).disponivel) {
+    throw Errors.conflict('Neste mês o bônus de lead e MLD vem do sistema de copy, confirmado pelo admin: não se lança aqui.');
+  }
   const criada = await prisma.comissaoOtimizacao.create({
     data: { competencia: b.competencia, copywriter: norm(b.copywriter), descricao: b.descricao, valorCentavos: b.valorCentavos ?? VALOR_OTIMIZACAO_CENTAVOS, criadoPorId: req.user?.id ?? null },
   });
@@ -156,18 +162,4 @@ comissoesRouter.delete('/otimizacoes/:id', exigeRh(PAPEIS_ESCREVEM), validate({ 
   await prisma.comissaoOtimizacao.delete({ where: { id } });
   await audit(req, 'rh.otimizacao_removida', 'comissao_otimizacao', id, { competencia: o.competencia, copywriter: o.copywriter, valorCentavos: o.valorCentavos });
   ok(res, { id });
-});
-
-// ── Cadastro de VSL (dono e editor): decisão do negócio, não vem do RedTrack ─────────────────────────────────────────────────────
-comissoesRouter.get('/vsl', async (req, res) => {
-  if (!veTodos(req.user?.rhPapel)) throw Errors.forbidden();
-  ok(res, await prisma.comissaoVsl.findMany({ orderBy: { chave: 'asc' } }));
-});
-
-comissoesRouter.put('/vsl', exigeRh(PAPEIS_ESCREVEM), validate({ body: vslBody }), async (req, res) => {
-  const b = req.valid.body as { chave: string; dono: string | null; editor: string | null; mesmaVsl: string | null };
-  const dados = { dono: b.dono ? norm(b.dono) : null, editor: b.editor ? norm(b.editor) : null, mesmaVsl: b.mesmaVsl, fonte: 'Cadastrado pelo RH no sistema' };
-  const v = await prisma.comissaoVsl.upsert({ where: { chave: b.chave }, create: { chave: b.chave, ...dados }, update: dados });
-  await audit(req, 'rh.vsl_cadastrada', 'comissao_vsl', v.id, { chave: v.chave, dono: v.dono, editor: v.editor, mesmaVsl: v.mesmaVsl });
-  ok(res, v);
 });
